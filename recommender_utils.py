@@ -126,7 +126,7 @@ def prepare_interactions_dataframe(df, user_id_col, item_id_col, weight_col=None
 
 def prepare_item_features(dataset, item_features_df, item_id_col, feature_col, features_list):
     """
-    Function to prepare item features for use with LightFM model
+    Function to prepare item features for use with LightFM model from a dataframe
     :param dataset: LightFM dataset object returned by prepare_interactions_dataframe function
     :param item_features_df: Dataframe containing the item features. One item per row
     :param item_id_col: Name of the column containing the item ids
@@ -157,7 +157,7 @@ def prepare_user_features(dataset, user_features_df, user_id_col, feature_col, f
     :param dataset: LightFM dataset object returned by prepare_interactions_dataframe function
     :param user_features_df: Dataframe containing the user features. One user per row
     :param user_id_col: Name of the column containing the user ids
-    :param feature_col: Name of the column containing the user features. Expected to be a list of features, or a list containing a dictionary of the form {feature name: weight}.\
+    :param feature_col: Name of the column containing the user features. Expected to be a list of features, or a list containing a dictionary of the form {feature name: weight}.
            Otherwise, the default will be a hot encoding based on provided feature names
     :param features_list: List of unique feature names
     :return: Scipy sparse matrix of users and user features. Entries will either be a hot encoding if a list of feature names per user is passed,
@@ -248,7 +248,70 @@ def make_cold_start_data(df, user_id_col, item_id_col, rating_col, shape, types)
     interactions = sparse.csr_matrix(df_pivot.values)
     interactions = interactions.tocoo()
     uids, iids, data = (interactions.row, interactions.col, interactions.data)
-    interactions = coo_matrix((data, (uids, iids)), shape=shape, dtype=types)
+    interactions = sparse.coo_matrix((data, (uids, iids)), shape=shape, dtype=types)
 
     return interactions
 
+
+def prepare_item_features_from_dict(dataset, item_features_dict, features_list):
+    """
+    Function to prepare item features for use with LightFM model from a dictionary
+    :param dataset: LightFM dataset object returned by prepare_interactions_dataframe function
+    :param item_features_dict: Dictionary with keys being the item ids and values the features.  Features should be either a list of feature names (this defaults the model to hot encoding) or a
+                               dictionary {feature name: feature weight}.
+    :param features_list: List of individual feature names
+    :return: Scipy sparse matrix of items and item features. Entries will either be a hot encoding if a list of feature names per item is passed,
+             or explicit weights if a dictionary of feature names to weights per item is provided
+    """
+
+    # Build (item id, list of features for that item) tuple.
+    feature_tuple = tuple(zip(item_features_dict.keys(), item_features_dict.values()))
+
+    # perform a partial fit of the item ids and item features
+    dataset.fit_partial(items=item_features_dict.keys(),
+                        item_features=features_list)
+
+    # Add item features to the dataset already initialized.  Must run prepare_interactions_dataframe function first.
+    try:
+        item_features = dataset.build_item_features(feature_tuple)
+    except ValueError as e:
+        if str(e) != 'Cannot normalize feature matrix: some rows have zero norm.':
+            raise
+        else:
+            print('Cannot normalize feature matrix: some rows have zero norm.')
+            print('Defaulting to non-normalized features, but best to check feature matrix.')
+            item_features = dataset.build_item_features(feature_tuple, normalize=False)
+
+    return item_features
+
+
+def prepare_user_features_from_dict(dataset, user_features_dict, features_list):
+    """
+    Function to prepare user features for use with LightFM model from a dictionary
+    :param dataset: LightFM dataset object returned by prepare_interactions_dataframe function
+    :param user_features_dict: Dictionary with keys being the user ids and values the features.  Features should be either a list of feature names (this defaults the model to hot encoding) or a
+                               dictionary {feature name: feature weight}.
+    :param features_list: List of individual feature names
+    :return: Scipy sparse matrix of users and user features. Entries will either be a hot encoding if a list of feature names per user is passed,
+             or explicit weights if a dictionary of feature names to weights per user is provided
+    """
+
+    # Build (item id, list of features for that item) tuple.
+    feature_tuple = tuple(zip(user_features_dict.keys(), user_features_dict.values()))
+
+    # perform a partial fit of the item ids and item features
+    dataset.fit_partial(users=user_features_dict.keys(),
+                        user_features=features_list)
+
+    # Add user features to the dataset already initialized.  Must run prepare_interactions_dataframe function first.
+    try:
+        user_features = dataset.build_user_features(feature_tuple)
+    except ValueError as e:
+        if str(e) != 'Cannot normalize feature matrix: some rows have zero norm.':
+            raise
+        else:
+            print('Cannot normalize feature matrix: some rows have zero norm.')
+            print('Defaulting to non-normalized features, but best to check feature matrix.')
+            user_features = dataset.build_user_features(feature_tuple, normalize=False)
+
+    return user_features
