@@ -215,7 +215,7 @@ def prepare_test_interactions(dataset, df, user_id_col, item_id_col, weight_col=
     :return: interactions matrix (scipy sparse coo matrix), matrix of weights (scipy sparse coo matrix) containing interaction weights (identity matrix if no interaction weights are desired)
     """
 
-    # TODO: Check if we actually need to return in the interaction weights here.  Not really all that relevant for testing purposes.
+    # TODO: Check if we actually need to return the interaction weights here.  Not really all that relevant for testing purposes.
     # Build the interactions and weights matrices. Weights will be optional
     if interaction_weights:
         (interactions, weights) = dataset.build_interactions(list(zip(df[user_id_col],
@@ -240,7 +240,7 @@ def make_cold_start_data(df, user_id_col, item_id_col, rating_col, shape, types)
     :return: Interaction matrix from cold start user-item dataframe (scipy sparse coo matrix)
     """
 
-    # TODO: check is this is really needed.  We could probably just use the built in train-test split function from LightFM to achieve this.
+    # TODO: check if this is really needed.  We could probably just use the built in train-test split function from LightFM to achieve this.
     df_pivot = df.pivot(index=user_id_col, columns=item_id_col, values=rating_col)
     df_pivot.fillna(0, inplace=True)
     df_pivot = df_pivot.astype(np.int32)

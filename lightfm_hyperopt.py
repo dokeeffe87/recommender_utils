@@ -44,8 +44,44 @@ import recommender_utils
 import sb_utils
 
 
-def fit_model():
-    pass
+def fit_model(hyperparams_dict, fit_params_dict=None, random_search=False, hyper_opt_search=True, max_evals=10, random_state=0):
+    """
+
+    :param params_dict:
+    :param eval_metric:
+    :param random_search:
+    :param hyper_opt_search:
+    :param max_evals:
+    :return:
+    """
+    if random_search:
+        if not hyper_opt_search:
+            print('Running randomized hyperparameter search')
+        else:
+            print('Please select either random search or hyperopt search')
+            return None
+
+    if hyper_opt_search:
+        if not random_search:
+            print('Running hyperopt hyperparameter search')
+        else:
+            print('Please select either random search or hyperopt search')
+            return None
+
+    params = prep_params_for_hyperopt(hyperparams_dict=hyperparams_dict, fit_params_dict=fit_params_dict)
+    trials = Trials()
+
+    if random_search:
+        best = fmin(f_objective, params, algo=tpe.rand.suggest, max_evals=max_evals, trials=trials, rstate=random_state)
+
+    if hyper_opt_search:
+        best = fmin(f_objective, params, algo=tpe.suggest, max_evals=max_evals, trials=trials, rstate=random_state)
+
+    return best, trials
+
+
+def prep_params_for_hyperopt(hyperparams_dict, fit_params_dict):
+    return None
 
 
 def fit_eval(params, eval_metric, train_interactions, valid_interactions, num_epochs, num_threads, item_features=None, user_features=None, k=10):
@@ -104,18 +140,18 @@ def fit_eval(params, eval_metric, train_interactions, valid_interactions, num_ep
     return score
 
 
-def sample_hyperparameters(param_grid):
-    """
-    Yield possible hyperparameter choices.
-    :param param_grid: input grid of hyperparameters to sample from
-    :return: Nothing
-    """
-    while True:
-        yield param_grid
-
-
-def random_search(train):
-    pass
+# def sample_hyperparameters(param_grid):
+#     """
+#     Yield possible hyperparameter choices.
+#     :param param_grid: input grid of hyperparameters to sample from
+#     :return: Nothing
+#     """
+#     while True:
+#         yield param_grid
+#
+#
+# def random_search(train):
+#     pass
 
 
 def hyperopt_valid(params):
