@@ -185,11 +185,11 @@ def prep_params_for_hyperopt(hyperparams_dict, fit_params_dict, interactions, te
 
 def get_best_hyperparams(hyperparams_dict, fit_params_dict, best):
     """
-
-    :param hyperparams_dict:
-    :param fit_params_dict:
-    :param best:
-    :return:
+    Helper function to extract the numerical values of best hyperparameters from hyperopt into a more easily usable format.
+    :param hyperparams_dict: Dictionary of hyperparameter values
+    :param fit_params_dict: Dictionary of fit parameter values
+    :param best: The best hyperparameters as returned by hyperopt
+    :return: Parameter dictionary. Contains both model hyperparameters and epochs parameter for model fit.
     """
     # Extract hyperparameters for the model
     best_params = {}
@@ -266,9 +266,10 @@ def fit_eval(params, eval_metric, train_interactions, valid_interactions, num_ep
 
 def hyperopt_valid(params):
     """
-
-    :param params:
-    :return:
+    Fits LightFM model in either cross validation mode or not. Does train/validation split before fitting. Splitting strategy is random, so may result in partial cold start problem upon evaluation.
+    :param params: Parameter grid containing hyperparameter search space, parameters to pass to model fit, as well as relevant data, evaluation metric, and evaluation metric parameters if relevant.
+                   Should conform to the format expected by hyperopt
+    :return: Mean evaluation metric score for all folds per evaluation if running in cross validation mode. Otherwise, it returns the straight mean validation set score (e.g. mean auc score)
     """
     num_epochs = params.pop("num_epochs")
     test_percentage = params.pop('test_percentage')
@@ -280,6 +281,7 @@ def hyperopt_valid(params):
     eval_metric = params.pop('eval_metric')
     k = params.pop('k')
 
+    # TODO: build in option to do informed train/valid splitting to avoid partial cold start predictions if desired.
     if cv:
         print('Running in cross validation mode for {0} folds'.format(cv))
         fold_results_list = []
@@ -324,12 +326,77 @@ def hyperopt_valid(params):
 
 def f_objective(params):
     """
-
-    :param params:
-    :return:
+    Objective function to minimize for hyperopt parameter search.  This is the actual objective function used to measure performance, not the surrogate model or the expected improvement
+    :param params: Dictionary with the hyperparameter search space. Expected to be conform to the expected format from hyperopt
+    :return: Dictionary entry with the current loss value.  Will be added to the history and used to inform the next round for hyperparameter selection
     """
     loss = hyperopt_valid(params)
     return {'loss': -loss, 'status': STATUS_OK}
+
+
+def fit_cv(params, interactions, eval_metric, num_epochs, num_threads, test_percentage=None, item_features=None, user_features=None, cv=None, k=10, seed=None, refit=False):
+    if not test_percentage:
+        raise ValueError('Please provide a test_percentage to split the input training data')
+
+    if seed:
+        params['random_state'] = np.random.RandomState(seed)
+    else:
+        print('The random seed is not set.  This will lead to potentially non-reproducible results.')
+
+    if cv:
+        print('Fitting model in cross validation model for {0} folds'.format(cv))
+
+        # Initialize a list to store cross validation results
+        # TODO: Generalize this to multi-evaluation metric outputs
+        score_list = []
+
+        for fold in range(cv):
+
+            # Do not set the seed here. It will just result in the same split over and over again in the loop
+            # TODO: Allow for different split strategies.  This is totally random and could result in a partial cold start problem.
+            train_, valid_ = random_train_test_split(interactions=interactions, test_percentage=test_percentage)
+
+            score = fit_eval(params=params,
+                             eval_metric=eval_metric,
+                             train_interactions=train_,
+                             valid_interactions=valid_,
+                             num_epochs=num_epochs,
+                             num_threads=num_threads,
+                             item_features=item_features,
+                             user_features=user_features,
+                             k=k)
+
+            score_list.append(score)
+
+            print('Completed fold: {0}'.format(fold))
+
+        print('Cross validation complete.')
+
+        if refit:
+            print('Refitting model to all provided training data')
+            model = LightFM(**params)
+            model.fit(interactions=interactions,
+                      epochs=num_epochs,
+                      num_threads=num_threads,
+                      item_features=item_features,
+                      user_features=user_features)
+
+            return model, score_list
+        else:
+            print('Not refitting model. Returning only cross validation scores')
+
+            return score_list
+    else:
+        print('Not running in cross validation mode. No model testing will occur, only one fit')
+
+        model = LightFM(**params)
+        model.fit(interactions=interactions,
+                  epochs=num_epochs,
+                  num_threads=num_threads,
+                  item_features=item_features,
+                  user_features=user_features)
+
+        return model
 
 
 # class LightFMHyperOpt(LightFM):
