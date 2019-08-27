@@ -335,6 +335,22 @@ def f_objective(params):
 
 
 def fit_cv(params, interactions, eval_metric, num_epochs, num_threads, test_percentage=None, item_features=None, user_features=None, cv=None, k=10, seed=None, refit=False):
+    """
+
+    :param params:
+    :param interactions:
+    :param eval_metric:
+    :param num_epochs:
+    :param num_threads:
+    :param test_percentage:
+    :param item_features:
+    :param user_features:
+    :param cv:
+    :param k:
+    :param seed:
+    :param refit:
+    :return:
+    """
     if not test_percentage:
         raise ValueError('Please provide a test_percentage to split the input training data')
 
@@ -368,7 +384,8 @@ def fit_cv(params, interactions, eval_metric, num_epochs, num_threads, test_perc
 
             score_list.append(score)
 
-            print('Completed fold: {0}'.format(fold))
+            print('Completed fold: {0}'.format(fold+1))
+            print('Fold {0} loss: {1}'.format(fold+1, score))
 
         print('Cross validation complete.')
 
@@ -397,71 +414,3 @@ def fit_cv(params, interactions, eval_metric, num_epochs, num_threads, test_perc
                   user_features=user_features)
 
         return model
-
-
-# class LightFMHyperOpt(LightFM):
-#     """
-#     Docs
-#     """
-#
-#     def __init__(self, param_grid, eval_metric, random_search=False, hyper_opt_search=True, max_evals=None):
-#         """
-#
-#         :param param_grid:
-#         :param eval_metric:
-#         :param random_search:
-#         :param hyper_opt_search:
-#         :param max_evals:
-#         """
-#         super().__init__()
-#         self.param_grid = param_grid
-#         self.eval_metric = eval_metric
-#         self.random_search = random_search
-#         self.hyper_opt_search = hyper_opt_search
-#         self.max_evals = max_evals
-#
-#         def sample_hyperparameters(param_grid):
-#             """
-#             Yield possible hyperparameter choices.
-#             :return: Nothing
-#             """
-#
-#             while True:
-#                 yield param_grid
-#
-#         def random_search(train, test, param_grid, item_features=None, user_features=None, num_samples=10, num_threads=1):
-#             """
-#             Run a random search on provided hyperparameter distribution
-#             :param train:
-#             :param test:
-#             :param param_grid:
-#             :param item_features:
-#             :param user_features:
-#             :param num_samples:
-#             :param num_threads:
-#             :return:
-#             """
-#             for hyperparams in itertools.islice(sample_hyperparameters(param_grid), num_samples):
-#                 num_epochs = hyperparams.pop("num_epochs")
-#
-#                 model = LightFM(**hyperparams)
-#                 model.fit(train, epochs=num_epochs, num_threads=num_threads, item_features=item_features)
-#
-#                 score = auc_score(model, test, train_interactions=train, num_threads=num_threads, item_features=item_features, user_features=user_features).mean()
-#
-#                 hyperparams["num_epochs"] = num_epochs
-#
-#                 yield (score, hyperparams, model)
-
-# def sample_hyperparameters(param_grid):
-#     """
-#     Yield possible hyperparameter choices.
-#     :param param_grid: input grid of hyperparameters to sample from
-#     :return: Nothing
-#     """
-#     while True:
-#         yield param_grid
-#
-#
-# def random_search(train):
-#     pass
