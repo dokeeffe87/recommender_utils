@@ -13,6 +13,7 @@
 A custom wrapper around LightFM for optimization with random search and hyperopt.
 
 Version 0.0.1
+
 """
 
 
@@ -44,7 +45,7 @@ import recommender_utils
 import sb_utils
 
 
-def fit_model(interactions, hyperparams_dict, fit_params_dict, test_percentage=0.1, item_features=None, user_features=None, cv=None, random_search=False, hyper_opt_search=True, max_evals=10, seed=0, eval_metric='auc', k=10):
+def fit_model(interactions, hyperparams_dict, fit_params_dict, test_percentage=0.1, item_features=None, user_features=None, cv=None, random_search=False, hyper_opt_search=True, max_evals=10, seed=0, eval_metric='auc_score', k=10):
     """
 
     :param interactions:
@@ -101,6 +102,13 @@ def prep_params_for_hyperopt(hyperparams_dict, fit_params_dict, interactions, te
 
     :param hyperparams_dict:
     :param fit_params_dict:
+    :param interactions:
+    :param test_percentage:
+    :param item_features:
+    :param user_features:
+    :param cv:
+    :param eval_metric:
+    :param k:
     :return:
     """
     params = {}
@@ -108,7 +116,13 @@ def prep_params_for_hyperopt(hyperparams_dict, fit_params_dict, interactions, te
     # Parse the hyperparameters dictionary
     for key, val in hyperparams_dict.items():
         if isinstance(val, list):
-            arg_ = [key] + val[1::]
+
+            # First assign the proper format for argument inputs
+            if val[0] == 'choice':
+                arg_ = [key] + val[1::]
+            else:
+                arg_ = [key] + val[1::][0]
+
             if val[0] == 'choice':
                 params[key] = hp.choice(*arg_)
             elif val[0] == 'uniform':
@@ -127,21 +141,26 @@ def prep_params_for_hyperopt(hyperparams_dict, fit_params_dict, interactions, te
                 params[key] = hp.lognormal(*arg_)
             elif val[0] == 'qlognormal':
                 params[key] = hp.qlognormal(*arg_)
+            elif val[0] == 'randint':
+                params[key] = hp.randint(*arg_)
             else:
                 raise ValueError('Unsupported hyperparameter distribution {0} provided'.format(val[0]))
         else:
-            if val[0] == 'randint':
-                arg_ = [key] + val[1::]
-                params[key] = hp.randint(*arg_)
+            # if not list is provided, assume a choice parameter
+            arg_ = [key] + [[val]]
+            params[key] = hp.randint(*arg_)
 
     # Parse the fit parameters dictionary
     for key, val in fit_params_dict.items():
         # These should only be discrete choice distributions
-        arg_ = [key] + val[1::]
+        if isinstance(val, list):
+            arg_ = [key] + val[1::]
+        else:
+            arg_ = [key] + [[val]]
         params[key] = hp.choice(*arg_)
 
     # Parse the interactions data
-    params['all_data'] = hp.choice('all_data', [interactions])
+    params['data'] = hp.choice('data', [interactions])
 
     # Parse the test_percentage
     params['test_percentage'] = hp.choice('test_percentage', [test_percentage])
@@ -162,6 +181,31 @@ def prep_params_for_hyperopt(hyperparams_dict, fit_params_dict, interactions, te
     params['k'] = hp.choice('k', [k])
 
     return params
+
+
+def get_best_hyperparams(hyperparams_dict, fit_params_dict, best):
+    """
+
+    :param hyperparams_dict:
+    :param fit_params_dict:
+    :param best:
+    :return:
+    """
+    # Extract hyperparameters for the model
+    best_params = {}
+    for key, val in best.items():
+        if key in hyperparams_dict:
+            input_ = hyperparams_dict[key]
+            if input_[0] == 'choice':
+                best_params[key] = input_[1][val]
+            else:
+                best_params[key] = val
+
+    # The only other parameter I need to get out is the number of epochs to train for.
+    # I'll put it all into the best_params dictionary, but I'll need to pop it out before defining the model
+    best_params['num_epochs'] = fit_params_dict['num_epochs'][1][best['num_epochs']]
+
+    return best_params
 
 
 def fit_eval(params, eval_metric, train_interactions, valid_interactions, num_epochs, num_threads, item_features=None, user_features=None, k=10):
@@ -215,7 +259,7 @@ def fit_eval(params, eval_metric, train_interactions, valid_interactions, num_ep
                                 item_features=item_features,
                                 user_features=user_features).mean()
     else:
-        raise ValueError('Invalid evaluation metric provided.')
+        raise ValueError('Invalid evaluation metric provided. Valid choices are auc_score, precision_at_k, recall_at_k, reciprocal_rank')
 
     return score
 
@@ -257,7 +301,7 @@ def hyperopt_valid(params):
 
             print('completed fold: {0}'.format(len(fold_results_list)))
 
-        print('completed fold: {0}'.format(len(fold_results_list)))
+        print('completed all folds in current iteration, starting next iteration')
 
         return np.mean(fold_results_list)
     else:
@@ -286,17 +330,6 @@ def f_objective(params):
     """
     loss = hyperopt_valid(params)
     return {'loss': -loss, 'status': STATUS_OK}
-
-
-def extract_best_params_for_refit(hyperparams_dict, fit_params_dict, best):
-    """
-
-    :param hyperparams_dict:
-    :param fit_params_dict:
-    :param best:
-    :return:
-    """
-    pass
 
 
 # class LightFMHyperOpt(LightFM):
