@@ -46,6 +46,8 @@ from scipy import sparse
 
 from ast import literal_eval
 
+from scipy import stats
+
 
 def get_similar_tags(model, tag_id):
     tag_embeddings = (model.item_embeddings.T
@@ -431,4 +433,40 @@ def compute_eval_metrics(model, train_interactions, test_interactions, item_feat
         all_results_dict['train_reciprocal_rank_list'] = train_reciprocal_rank_list
 
     return all_results_dict
+
+
+def compute_eval_metric_summaries(eval_dict):
+    """
+
+    :param eval_dict:
+    :return:
+    """
+
+    # Initialize a dictionary to store final results
+    storage_dict = {}
+
+    for metric_, value_list in eval_dict.items():
+        # Compute
+        nobs, minmax, mean, variance, skewness, kurtosis = stats.describe(value_list)
+        median = np.median(value_list)
+        percentile_25 = np.percentile(value_list, q=25)
+        percentile_75 = np.percentile(value_list, q=50)
+
+        storage_dict[metric_[:-5]] = {'number_observations': nobs,
+                                      'min': minmax[0],
+                                      'max': minmax[1],
+                                      'mean': mean,
+                                      'variance': variance,
+                                      'skewness': skewness,
+                                      'kurtosis': kurtosis,
+                                      'median': median,
+                                      '25th percentile': percentile_25,
+                                      '75th percentile': percentile_75}
+
+    results_df = pd.DataFrame.from_dict(storage_dict, orient='index')
+    results_cols = results_df.columns.tolist()
+    results_df.reset_index(inplace=True)
+    results_df.columns = ['metric'] + results_cols
+
+    return results_df
 
