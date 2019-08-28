@@ -315,3 +315,120 @@ def prepare_user_features_from_dict(dataset, user_features_dict, features_list):
             user_features = dataset.build_user_features(feature_tuple, normalize=False)
 
     return user_features
+
+
+def compute_eval_metrics(model, train_interactions, test_interactions, item_features=None, user_features=None, tuple_of_k=(10, 20, 50), compute_on_train=False, preserve_rows=False, num_threads=1):
+    """
+
+    :param model:
+    :param train_interactions:
+    :param test_interactions:
+    :param item_features:
+    :param user_features:
+    :param tuple_of_k:
+    :param compute_on_train:
+    :param preserve_rows:
+    :param num_threads:
+    :return:
+    """
+
+    # Initialize a dictionary to store results
+    all_results_dict = {}
+
+    # Compute the test_auc:
+    print('Computing test set AUCs')
+    test_auc_list = auc_score(model=model,
+                              train_interactions=train_interactions,
+                              test_interactions=test_interactions,
+                              item_features=item_features,
+                              user_features=user_features,
+                              preserve_rows=preserve_rows,
+                              num_threads=num_threads)
+    all_results_dict['test_auc_list'] = test_auc_list
+
+    # Compute test recall at all input k values:
+    for k in tuple_of_k:
+        print('Computing test set recalls at {0}'.format(k))
+        test_recall_list = recall_at_k(model=model,
+                                       train_interactions=train_interactions,
+                                       test_interactions=test_interactions,
+                                       item_features=item_features,
+                                       user_features=user_features,
+                                       preserve_rows=preserve_rows,
+                                       num_threads=num_threads,
+                                       k=k)
+        all_results_dict['test_recall_at_{0}_list'.format(k)] = test_recall_list
+
+    # Compute test precision at all input k values:
+    for k in tuple_of_k:
+        print('Computing test set precisions at {0}'.format(k))
+        test_precision_list = precision_at_k(model=model,
+                                             train_interactions=train_interactions,
+                                             test_interactions=test_interactions,
+                                             item_features=item_features,
+                                             user_features=user_features,
+                                             preserve_rows=preserve_rows,
+                                             num_threads=num_threads,
+                                             k=k)
+        all_results_dict['test_precision_at_{0}_list'.format(k)] = test_precision_list
+
+    # Compute test reciprocal rank
+    print('Computing test set reciprocal rank')
+    test_reciprocal_rank_list = reciprocal_rank(model=model,
+                                                train_interactions=train_interactions,
+                                                test_interactions=test_interactions,
+                                                item_features=item_features,
+                                                user_features=user_features,
+                                                preserve_rows=preserve_rows,
+                                                num_threads=num_threads)
+    all_results_dict['test_reciprocal_rank_list'] = test_reciprocal_rank_list
+
+    if compute_on_train:
+        print('Computing metrics on training set as well')
+
+        # Compute the train_auc:
+        print('Computing train set AUCs')
+        train_auc_list = auc_score(model=model,
+                                   test_interactions=train_interactions,
+                                   item_features=item_features,
+                                   user_features=user_features,
+                                   preserve_rows=preserve_rows,
+                                   num_threads=num_threads)
+        all_results_dict['train_auc_list'] = train_auc_list
+
+        # Compute train recall at all input k values:
+        for k in tuple_of_k:
+            print('Computing train set recalls at {0}'.format(k))
+            train_recall_list = recall_at_k(model=model,
+                                            test_interactions=train_interactions,
+                                            item_features=item_features,
+                                            user_features=user_features,
+                                            preserve_rows=preserve_rows,
+                                            num_threads=num_threads,
+                                            k=k)
+            all_results_dict['train_recall_at_{0}_list'.format(k)] = train_recall_list
+
+        # Compute train precision at all input k values:
+        for k in tuple_of_k:
+            print('Computing train set precisions at {0}'.format(k))
+            train_precision_list = precision_at_k(model=model,
+                                                  test_interactions=train_interactions,
+                                                  item_features=item_features,
+                                                  user_features=user_features,
+                                                  preserve_rows=preserve_rows,
+                                                  num_threads=num_threads,
+                                                  k=k)
+            all_results_dict['train_precision_at_{0}_list'.format(k)] = train_precision_list
+
+        # Compute train reciprocal rank
+        print('Computing train set reciprocal rank')
+        train_reciprocal_rank_list = reciprocal_rank(model=model,
+                                                     test_interactions=train_interactions,
+                                                     item_features=item_features,
+                                                     user_features=user_features,
+                                                     preserve_rows=preserve_rows,
+                                                     num_threads=num_threads)
+        all_results_dict['train_reciprocal_rank_list'] = train_reciprocal_rank_list
+
+    return all_results_dict
+
