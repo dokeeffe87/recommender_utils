@@ -470,3 +470,51 @@ def compute_eval_metric_summaries(eval_dict):
 
     return results_df
 
+
+def plot_metric_dist(eval_dict, metric, data_split='test', figsize=(20, 10), title=None, kde=False, save_name=None, axis_fontsize=10, title_fontsize=10):
+    """
+
+    :param eval_dict:
+    :param metric:
+    :param data_split:
+    :param figsize:
+    :param title:
+    :param kde:
+    :param save_name:
+    :param axis_fontsize:
+    :param title_fontsize:
+    :return:
+    """
+
+    metric = metric.lower()
+    data_split = data_split.lower()
+
+    metric_key = data_split + '_' + metric + '_list'
+
+    if metric_key not in eval_dict.keys():
+        raise ValueError('Invalid metric and/or data_split.')
+
+    fig, ax = plt.subplots(figsize=figsize)
+    if title:
+        sns.distplot(eval_dict[metric_key], kde=kde, ax=ax)
+        ax.set_title(title, fontsize=title_fontsize)
+    else:
+        sns.distplot(eval_dict[metric_key], kde=kde, ax=ax)
+
+    # Format x-axis name
+    metric_name_list = metric_key[:-5].split('_')
+    if metric_name_list[0] == 'test':
+        metric_name_list = ['Test'] + metric_name_list[1::]
+    else:
+        metric_name_list = ['Train'] + metric_name_list[1::]
+
+    xlabel = " ".join(metric_name_list)
+
+    ax.set_xlabel(xlabel, fontsize=axis_fontsize)
+    ax.set_ylabel('count', fontsize=axis_fontsize)
+
+    if save_name:
+        plt.savefig(save_name)
+
+    plt.show()
+
