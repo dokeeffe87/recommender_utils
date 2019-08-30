@@ -13,10 +13,12 @@ Version 0.0.1
 """
 
 # import modules
+
 import os
 import zipfile
 import csv
 import pandas as pd
+import pickle
 import requests
 import json
 import numpy as np
@@ -636,4 +638,5 @@ def load_data_objects(filename, is_dataset=False, is_matrix=False):
 
     if is_matrix:
         matrix = sparse.load_npz(filename)
+
         return matrix
