@@ -604,3 +604,36 @@ def format_recommendations(predictions_df, item_features_df=None, user_features_
         print('\n')
 
 
+def save_data_objects(filename, dataset=None, matrix=None):
+    """
+    Function to save data objects used for the model
+    :param filename: Directory and name of the file you want to save data as. Dataset objects should be .pickle files. Matrix objects should be .npz files
+    :param dataset: Dataset object used by LightFM
+    :param matrix:
+    :return:
+    """
+    # TODO: Add support for multiple saves at once.
+    if dataset:
+        with open('filename', 'wb') as f:
+            pickle.dump(dataset, f, protocol=pickle.HIGHEST_PROTOCOL)
+    if matrix:
+        sparse.save_npz(filename, matrix)
+
+
+def load_data_objects(filename, is_dataset=False, is_matrix=False):
+    """
+    Function to load both LightFM dataset objects and data matrices
+    :param filename: Path and name of the file you want to load
+    :param is_dataset: Set True if the file is a dataset object
+    :param is_matrix: Set true if the file is a data matrix
+    :return: Either LightFM dataset object or a scipy sparse matrix
+    """
+    # TODO: Add support for multiple loads at once
+    if is_dataset:
+        dataset = pickle.load(open(filename, 'rb', -1))
+
+        return dataset
+
+    if is_matrix:
+        matrix = sparse.load_npz(filename)
+        return matrix

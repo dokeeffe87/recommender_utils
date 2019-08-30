@@ -24,12 +24,29 @@ import sys
 import pandas as pd
 import numpy as np
 import json
+import pickle
 
 from lightfm import LightFM
 from lightfm.cross_validation import random_train_test_split
 from lightfm.evaluation import auc_score, precision_at_k, recall_at_k, reciprocal_rank
 
 from hyperopt import fmin, tpe, hp, STATUS_OK, Trials
+
+# Define the possible model weights for saving and loading
+possible_model_weights = {
+    "user_embeddings",
+    "user_biases",
+    "item_embeddings",
+    "item_biases",
+    "item_bias_momentum",
+    "item_bias_gradients",
+    "item_embedding_momentum",
+    "item_embedding_gradients",
+    "user_bias_momentum",
+    "user_bias_gradients",
+    "user_embedding_momentum",
+    "user_embedding_gradients",
+}
 
 
 def fit_model(interactions, hyperparams_dict, fit_params_dict, test_percentage=0.1, item_features=None, user_features=None, cv=None, random_search=False, hyper_opt_search=True, max_evals=10, seed=0, eval_metric='auc_score', k=10):
@@ -420,3 +437,36 @@ def fit_cv(params, interactions, eval_metric, num_epochs, num_threads, test_perc
                   user_features=user_features)
 
         return model
+
+
+def save_model(model, file_name):
+    """
+    Function to save model
+    :param model: The trained model to save
+    :param file_name: The directory and name of the file you want to use. The format is .npz
+    :return:
+    """
+    model_params = {value: getattr(model, value) for value in possible_model_weights}
+    hyperparams = model.get_params()
+    model_params.update(hyperparams)
+
+    np.savez_compressed(file_name, **model_params)
+
+    print('Model saved')
+
+
+def load_model(file_name):
+    """
+    Function to load saved model
+    :param file_name: The directory and name of the .npz file with the saved model
+    :return: The saved model object
+    """
+    model = LightFM()
+
+    numpy_model = np.load(file_name, allow_pickle=True)
+    for value in [x for x in numpy_model if x in possible_model_weights]:
+        setattr(model, value, numpy_model[value])
+
+    model.set_params(**{k: v for k, v in numpy_model.items() if k not in possible_model_params})
+
+    return model
