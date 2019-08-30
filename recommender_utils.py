@@ -518,3 +518,89 @@ def plot_metric_dist(eval_dict, metric, data_split='test', figsize=(20, 10), tit
 
     plt.show()
 
+
+def predict_on_users(model, dataset, list_of_user_ids, list_of_item_ids, item_features=None, user_features=None):
+    """
+
+    :param model:
+    :param dataset:
+    :param list_of_user_ids:
+    :param list_of_item_ids:
+    :param item_features:
+    :param user_features:
+    :return:
+    """
+
+    # Convert the list of user ids and item ids to the internal indices used by the model
+    internal_user_id_list = np.array([dataset.mapping()[0][id_] for id_ in list_of_user_ids])
+    internal_item_id_list = np.array([dataset.mapping()[2][id_] for id_ in list_of_item_ids])
+
+    # Invert the dictionaries for reverse translation
+    internal_id_to_user_dict = {val: key for key, val in dataset.mapping()[0].items()}
+    internal_id_to_item_dict = {val: key for key, val in dataset.mapping()[2].items()}
+
+    pred_dict = {}
+
+    for id_ in internal_user_id_list:
+        preds_ = model.predict(user_ids=np.array([id_ for x in internal_item_id_list]), item_ids=internal_item_id_list, item_features=item_features, user_features=user_features)
+        pred_dict[id_] = {}
+        for i in range(len(preds_)):
+            pred_dict[id_][internal_item_id_list[i]] = preds_[i]
+
+    # Convert to a dataframe
+    preds_list = [[key, val_0, val_1] for key, value in pred_dict.items() for val_0, val_1 in value.items()]
+    preds_df = pd.DataFrame(preds_list)
+    preds_df.columns = ['user_id_internal', 'item_id_internal', 'score']
+
+    # Map back to the external ids
+    preds_df['user_id'] = preds_df['user_id_internal'].map(internal_id_to_user_dict)
+    preds_df['item_id'] = preds_df['item_id_internal'].map(internal_id_to_item_dict)
+
+    # Drop the internal ids as we don't need them anymore
+    preds_df.drop(['user_id_internal', 'item_id_internal'], axis=1, inplace=True)
+
+    return preds_df
+
+
+def format_recommendations(predictions_df, item_features_df=None, user_features_df=None, item_features_col=None, user_features_col=None, item_id_col=None, user_id_col=None):
+    """
+
+    :param predictions_df:
+    :param item_features_df:
+    :param user_features_df:
+    :param item_features_col:
+    :param user_features_col:
+    :param item_id_col:
+    :param user_id_col:
+    :return:
+    """
+    if isinstance(item_features_df, pd.core.frame.DataFrame):
+        if not item_features_col:
+            raise ValueError('Please supply a column from the item features dataframe to find the desired item descriptions')
+        if not item_id_col:
+            raise ValueError('Please supply the item id column name in the item features dataframe')
+    if isinstance(user_features_df, pd.core.frame.DataFrame):
+        if not user_features_col:
+            raise ValueError('Please supply a column from the user features dataframe to find the desired user descriptions')
+        if not user_id_col:
+            raise ValueError('Please supply the user id column name in the user features dataframe')
+
+    grped_df = predictions_df.groupby('user_id')
+
+    for id_, grp in grped_df:
+        df_ = grp.sort_values('score', ascending=False).reset_index()
+        print('Recommendations for input ID: {0}'.format(id_))
+        if user_features_col:
+            print('User description: {0}'.format(user_features_df[user_features_col].loc[(user_features_col[user_id_col] == id_)].values[0]))
+        for i in range(2):
+            item = df_['item_id'].iloc[i]
+            # We'll leave the score as is for now, but we may want to normalize the scale at some point
+            score = df_['score'].iloc[i]
+            print('     Recommended item id: {0}'.format(item))
+            if item_features_col:
+                print('          Item description: {0}'.format(item_features_df[item_features_col].loc[(item_features_df[item_id_col] == item)].values[0]))
+            print('          Score: {0}'.format(score))
+            print('---------------------------------------------------')
+        print('\n')
+
+

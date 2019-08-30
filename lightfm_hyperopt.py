@@ -23,26 +23,13 @@ import os
 import sys
 import pandas as pd
 import numpy as np
-
+import json
 
 from lightfm import LightFM
 from lightfm.cross_validation import random_train_test_split
 from lightfm.evaluation import auc_score, precision_at_k, recall_at_k, reciprocal_rank
 
 from hyperopt import fmin, tpe, hp, STATUS_OK, Trials
-import hyperopt.pyll.stochastic
-from sklearn.model_selection import cross_val_score
-
-
-import matplotlib.pyplot as plt
-import seaborn as sns
-
-import warnings
-warnings.filterwarnings("ignore")
-
-sys.path.append('/Users/danielokeeffe/Documents/src/recommender_utils')
-import recommender_utils
-import sb_utils
 
 
 def fit_model(interactions, hyperparams_dict, fit_params_dict, test_percentage=0.1, item_features=None, user_features=None, cv=None, random_search=False, hyper_opt_search=True, max_evals=10, seed=0, eval_metric='auc_score', k=10):
@@ -183,12 +170,13 @@ def prep_params_for_hyperopt(hyperparams_dict, fit_params_dict, interactions, te
     return params
 
 
-def get_best_hyperparams(hyperparams_dict, fit_params_dict, best):
+def get_best_hyperparams(hyperparams_dict, fit_params_dict, best, file_name=None):
     """
     Helper function to extract the numerical values of best hyperparameters from hyperopt into a more easily usable format.
     :param hyperparams_dict: Dictionary of hyperparameter values
     :param fit_params_dict: Dictionary of fit parameter values
     :param best: The best hyperparameters as returned by hyperopt
+    :param file_name: Directory plus name of the file you want to save the best parameters to.  File name must end in .json as this is the expected output format
     :return: Parameter dictionary. Contains both model hyperparameters and epochs parameter for model fit.
     """
     # Extract hyperparameters for the model
@@ -204,6 +192,24 @@ def get_best_hyperparams(hyperparams_dict, fit_params_dict, best):
     # The only other parameter I need to get out is the number of epochs to train for.
     # I'll put it all into the best_params dictionary, but I'll need to pop it out before defining the model
     best_params['num_epochs'] = fit_params_dict['num_epochs'][1][best['num_epochs']]
+
+    if file_name:
+        json_out =json.dumps(best_params)
+        f = open(file_name, "W")
+        f.write(json_out)
+        f.close()
+
+    return best_params
+
+
+def load_best_params(file_name):
+    """
+    Function to load previously saved best parameters
+    :param file_name: Directory and name of the json file to load
+    :return: Dictionary with parameters contained in the input json file
+    """
+    with open(file_name, 'r') as f:
+        best_params = json.load(f)
 
     return best_params
 
