@@ -49,19 +49,23 @@ possible_model_weights = {"user_embeddings",
 
 def fit_model(interactions, hyperparams_dict, fit_params_dict, test_percentage=0.1, item_features=None, user_features=None, cv=None, random_search=False, hyper_opt_search=True, max_evals=10, seed=0, eval_metric='auc_score', k=10):
     """
-
-    :param interactions:
-    :param hyperparams_dict:
-    :param fit_params_dict:
-    :param test_percentage:
-    :param item_features:
-    :param user_features:
-    :param cv:
-    :param random_search:
-    :param hyper_opt_search:
-    :param max_evals:
-    :param seed:
-    :return:
+    Higher level function to actually run all the aspects of the hyperparameter search.
+    :param interactions: The full training set (sparse matrix) of user/item interactions
+    :param hyperparams_dict: The dictionary of model hyperparameters.  The keys should be the hyperparameter name and the values a list with the first element the HyperOpt variable type and the second
+                             element should be a list of possible values to consider for the hyperparameter.  If only a key and number value are provided, it is assumed that the variable is a choice
+                             type and if the only number you want to consider in your model optimization for that hyperparameters
+    :param fit_params_dict: The dictionary of fit parameters.  The keys should be the parameter name and the values a list with the first element the HyperOpt variable type and the second
+                             element should be a list of possible values to consider for the parameter.  If only a key and number value are provided, it is assumed that the variable is a choice
+                             type and if the only number you want to consider in your model optimization for that parameters
+    :param test_percentage: The percentage of the training set you want to use for validation
+    :param item_features: The sparse matrix of features for the items
+    :param user_features: The sparse matrix of features for the users
+    :param cv: The number of cross validation folds to use.  Should be an interger number of folds or None if you don't want to run with cross validation
+    :param random_search: True if you want to use randomized search over the parameters
+    :param hyper_opt_search: True if you want to use tree parzen estimators algorithm for parameter search
+    :param max_evals: The maximum number of evaluations to use for parameter search
+    :param seed: The random seed to use in model building.  Doesn't apply to the train/test split, but should start the model training at the same place
+    :return: The best found parameters and the history trials object
     """
     if random_search:
         if not hyper_opt_search:
@@ -101,17 +105,21 @@ def fit_model(interactions, hyperparams_dict, fit_params_dict, test_percentage=0
 
 def prep_params_for_hyperopt(hyperparams_dict, fit_params_dict, interactions, test_percentage, item_features, user_features, cv, eval_metric, k):
     """
-
-    :param hyperparams_dict:
-    :param fit_params_dict:
-    :param interactions:
-    :param test_percentage:
-    :param item_features:
-    :param user_features:
-    :param cv:
-    :param eval_metric:
-    :param k:
-    :return:
+    Formats the input range of hyperparameters and fit parameters to search over for model optimization for us in HyperOpt
+    :param hyperparams_dict: The dictionary of model hyperparameters.  The keys should be the hyperparameter name and the values a list with the first element the HyperOpt variable type and the second
+                             element should be a list of possible values to consider for the hyperparameter.  If only a key and number value are provided, it is assumed that the variable is a choice
+                             type and if the only number you want to consider in your model optimization for that hyperparameters
+    :param fit_params_dict: The dictionary of fit parameters.  The keys should be the parameter name and the values a list with the first element the HyperOpt variable type and the second
+                             element should be a list of possible values to consider for the parameter.  If only a key and number value are provided, it is assumed that the variable is a choice
+                             type and if the only number you want to consider in your model optimization for that parameters
+    :param interactions: The full user/item interactions training set (sparse matrix) to build the model on
+    :param test_percentage: The percentage of the training set you want to use for validation
+    :param item_features: The sparse matrix of features for the items
+    :param user_features: The sparse matrix of features for the users
+    :param cv: The number of cross validation folds to use. Should be an integer number of folds, or None if you don't want to run with cross validation
+    :param eval_metric: The evaluation metric to use
+    :param k: The k parameter for the precision at k and recall at k metrics.  Only relevant if you are using one of these metrics for valuation
+    :return: The parameter grid formated to work with HyperOpt
     """
     params = {}
 
@@ -231,15 +239,15 @@ def load_best_params(file_name):
 
 def fit_eval(params, eval_metric, train_interactions, valid_interactions, num_epochs, num_threads, item_features=None, user_features=None, k=10):
     """
-
-    :param params:
-    :param eval_metric:
-    :param train_interactions:
-    :param valid_interactions:
-    :param num_epochs:
-    :param num_threads:
-    :param item_features:
-    :param user_features:
+    Helper function to fit LightFM model with desired parameters and automatically compute desired evaluation metric
+    :param params: Dictionary of hyperparameters to pass to the LightFM model
+    :param eval_metric: The evaluation metric you want to use
+    :param train_interactions: The training set of user/item interactions
+    :param valid_interactions: The validation set of user/item interactions used to compute the evaluation metric of choice
+    :param num_epochs: The number of epochs to train the model
+    :param num_threads: The number of threads to use for training
+    :param item_features: The sparse matrix of features for the items
+    :param user_features: The sparse matrix of features for the users
     :return:
     """
     model = LightFM(**params)
@@ -357,20 +365,20 @@ def f_objective(params):
 
 def fit_cv(params, interactions, eval_metric, num_epochs, num_threads, test_percentage=None, item_features=None, user_features=None, cv=None, k=10, seed=None, refit=False):
     """
-
-    :param params:
-    :param interactions:
-    :param eval_metric:
-    :param num_epochs:
-    :param num_threads:
-    :param test_percentage:
-    :param item_features:
-    :param user_features:
-    :param cv:
-    :param k:
-    :param seed:
-    :param refit:
-    :return:
+    Fit a LightFM model with or without cross validation. The idea here is to randomly divide the training data and build a model on one set and test on a another to measure performance stability
+    :param params: The hyperparameters dictionary to pass to LightFM model
+    :param interactions: The full training set of user/item interactions
+    :param eval_metric: The evaluation metric you want to use for the cv folds
+    :param num_epochs: The number of epochs to run the model for
+    :param num_threads: The number of threads to use
+    :param test_percentage: The percentage of the input interactions you want to use to create the train/test sets per fold
+    :param item_features: The sparse matrix of features for the items
+    :param user_features: The sparse matrix of features for the users
+    :param cv: The number of cross validation folds
+    :param k: The k parameter for the precision at k and recall at k metrics.  Only relevant if you are using one of these metrics for valuation
+    :param seed: The random seed to use in model building.  Doesn't apply to the train/test split, but should start the model training at the same place
+    :param refit: If true, refit the model to the entire training data once the cv evaluation is complete
+    :return: if refit is True, returns the model trained on the full training set and a list of cross validation scores for each fold.  Otherwise, just the cross validation scores list is returned
     """
     if test_percentage is None:
         raise ValueError('Please provide a test_percentage to split the input training data')
