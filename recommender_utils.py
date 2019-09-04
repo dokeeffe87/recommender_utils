@@ -497,7 +497,7 @@ def plot_metric_dist(eval_dict, metric, data_split='test', figsize=(20, 10), tit
         raise ValueError('Invalid metric and/or data_split.')
 
     fig, ax = plt.subplots(figsize=figsize)
-    if title:
+    if title is not None:
         sns.distplot(eval_dict[metric_key], kde=kde, ax=ax)
         ax.set_title(title, fontsize=title_fontsize)
     else:
@@ -515,7 +515,7 @@ def plot_metric_dist(eval_dict, metric, data_split='test', figsize=(20, 10), tit
     ax.set_xlabel(xlabel, fontsize=axis_fontsize)
     ax.set_ylabel('count', fontsize=axis_fontsize)
 
-    if save_name:
+    if save_name is not None:
         plt.savefig(save_name)
 
     plt.show()
@@ -615,10 +615,10 @@ def save_data_objects(filename, dataset=None, matrix=None):
     :return:
     """
     # TODO: Add support for multiple saves at once.
-    if dataset:
+    if dataset is not None:
         with open('filename', 'wb') as f:
             pickle.dump(dataset, f, protocol=pickle.HIGHEST_PROTOCOL)
-    if matrix:
+    if matrix is not None:
         sparse.save_npz(filename, matrix)
 
 

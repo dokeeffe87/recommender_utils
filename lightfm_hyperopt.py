@@ -33,20 +33,18 @@ from lightfm.evaluation import auc_score, precision_at_k, recall_at_k, reciproca
 from hyperopt import fmin, tpe, hp, STATUS_OK, Trials
 
 # Define the possible model weights for saving and loading
-possible_model_weights = {
-    "user_embeddings",
-    "user_biases",
-    "item_embeddings",
-    "item_biases",
-    "item_bias_momentum",
-    "item_bias_gradients",
-    "item_embedding_momentum",
-    "item_embedding_gradients",
-    "user_bias_momentum",
-    "user_bias_gradients",
-    "user_embedding_momentum",
-    "user_embedding_gradients",
-}
+possible_model_weights = {"user_embeddings",
+                          "user_biases",
+                          "item_embeddings",
+                          "item_biases",
+                          "item_bias_momentum",
+                          "item_bias_gradients",
+                          "item_embedding_momentum",
+                          "item_embedding_gradients",
+                          "user_bias_momentum",
+                          "user_bias_gradients",
+                          "user_embedding_momentum",
+                          "user_embedding_gradients"}
 
 
 def fit_model(interactions, hyperparams_dict, fit_params_dict, test_percentage=0.1, item_features=None, user_features=None, cv=None, random_search=False, hyper_opt_search=True, max_evals=10, seed=0, eval_metric='auc_score', k=10):
@@ -210,7 +208,7 @@ def get_best_hyperparams(hyperparams_dict, fit_params_dict, best, file_name=None
     # I'll put it all into the best_params dictionary, but I'll need to pop it out before defining the model
     best_params['num_epochs'] = fit_params_dict['num_epochs'][1][best['num_epochs']]
 
-    if file_name:
+    if file_name is not None:
         json_out =json.dumps(best_params)
         f = open(file_name, "W")
         f.write(json_out)
@@ -374,15 +372,15 @@ def fit_cv(params, interactions, eval_metric, num_epochs, num_threads, test_perc
     :param refit:
     :return:
     """
-    if not test_percentage:
+    if test_percentage is None:
         raise ValueError('Please provide a test_percentage to split the input training data')
 
-    if seed:
+    if seed is not None:
         params['random_state'] = np.random.RandomState(seed)
     else:
         print('The random seed is not set.  This will lead to potentially non-reproducible results.')
 
-    if cv:
+    if cv is not None:
         print('Fitting model in cross validation model for {0} folds'.format(cv))
 
         # Initialize a list to store cross validation results
