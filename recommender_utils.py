@@ -15,40 +15,18 @@ Version 0.0.1
 # import modules
 
 import os
-import zipfile
-import csv
 import pandas as pd
 import pickle
-import requests
-import json
 import numpy as np
-import nltk
-import string
-import re
-import random
-import operator
-import time
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from itertools import islice, chain
-
-from collections import Counter
+from itertools import chain
 
 from lightfm.evaluation import auc_score, precision_at_k, recall_at_k, reciprocal_rank
-from lightfm import LightFM
 from lightfm.data import Dataset
 
-from nltk.stem.porter import PorterStemmer
-
-from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
-from sklearn.model_selection import train_test_split, StratifiedKFold
-
-from scipy import sparse
-
-from ast import literal_eval
-
-from scipy import stats
+from scipy import sparse, stats
 
 
 def get_similar_tags(model, tag_id):
@@ -323,17 +301,18 @@ def prepare_user_features_from_dict(dataset, user_features_dict, features_list):
 
 def compute_eval_metrics(model, train_interactions, test_interactions, item_features=None, user_features=None, tuple_of_k=(10, 20, 50), compute_on_train=False, preserve_rows=False, num_threads=1):
     """
-
-    :param model:
-    :param train_interactions:
-    :param test_interactions:
-    :param item_features:
-    :param user_features:
-    :param tuple_of_k:
-    :param compute_on_train:
-    :param preserve_rows:
-    :param num_threads:
-    :return:
+    Function to compute standard evaluation metrics on given test set and model
+    :param model: The model to test
+    :param train_interactions: The train set of user/item interactions (sparse matrix).  This is used to remove training examples from the test set score calculations which could bias results
+    :param test_interactions: The test set of user/item interactions (sparse matrix)
+    :param item_features: The sparse matrix of features for the items
+    :param user_features: The sparse matrix of features for the users
+    :param tuple_of_k: A tuple containing the values of k you want to consider for the precision at k and recall at k metrics
+    :param compute_on_train: Set true if you want to see the metrics computed on the training set as well
+    :param preserve_rows: Preserve rows parameter in the LightFM provided metrics: When False (default), the number of rows in the output will be equal to the number of users with interactions in the
+                          evaluation set. When True, the number of rows in the output will be equal to the number of users
+    :param num_threads: The number of threads to use
+    :return: dictionary with the metrics as keys and the list of results as values
     """
 
     # Initialize a dictionary to store results
@@ -439,9 +418,9 @@ def compute_eval_metrics(model, train_interactions, test_interactions, item_feat
 
 def compute_eval_metric_summaries(eval_dict):
     """
-
-    :param eval_dict:
-    :return:
+    Given the computed evaluation metrics for each user in a set, this will produce a summary dataframe of descriptive performance statistics
+    :param eval_dict: The evaluation dictionary returned by the compute_eval_metric function
+    :return: dataframe with the summary stats of the evaluation metrics
     """
 
     # Initialize a dictionary to store final results
@@ -475,17 +454,17 @@ def compute_eval_metric_summaries(eval_dict):
 
 def plot_metric_dist(eval_dict, metric, data_split='test', figsize=(20, 10), title=None, kde=False, save_name=None, axis_fontsize=10, title_fontsize=10):
     """
-
-    :param eval_dict:
-    :param metric:
-    :param data_split:
-    :param figsize:
-    :param title:
-    :param kde:
-    :param save_name:
-    :param axis_fontsize:
-    :param title_fontsize:
-    :return:
+    Function to plot the distribution of given metrics
+    :param eval_dict: The evaluation metric dictionary returned by the compute_eval_metric function
+    :param metric: The metric you want to see the distribution for
+    :param data_split: If the provided values are on the test set or the train set
+    :param figsize: Tuple which controls the vertical and horizontal figure size
+    :param title: Optional string for the chart title
+    :param kde: Optional boolean. True will fit a kernel density estimate to the distribution
+    :param save_name: Path and file name you want to use to save the output charts. Should ideally be a pdf file.  Optional
+    :param axis_fontsize: Font size for the axes labels
+    :param title_fontsize: Font size for the title
+    :return: Nothing. Just makes the desired plot and saves it if directed to
     """
 
     metric = metric.lower()
@@ -523,14 +502,14 @@ def plot_metric_dist(eval_dict, metric, data_split='test', figsize=(20, 10), tit
 
 def predict_on_users(model, dataset, list_of_user_ids, list_of_item_ids, item_features=None, user_features=None):
     """
-
-    :param model:
-    :param dataset:
-    :param list_of_user_ids:
-    :param list_of_item_ids:
-    :param item_features:
-    :param user_features:
-    :return:
+    Make a recommendation prediction on a set of users and a set of items
+    :param model: The recommender model to use to make the predictions
+    :param dataset: The dataset object created before fitting the LightFM model
+    :param list_of_user_ids: A list of user ids from your dataset that you want to predict on.  The ids must exist in the data mapping, so you may need to run a partial_fit on these user ids
+    :param list_of_item_ids: A list of items ids from your dataset that you want to predict on.  The ids must exist in the data mapping, so you may need to run a partial_fit on these item ids
+    :param item_features: The sparse matrix of features for the items
+    :param user_features: The sparse matrix of features for the users
+    :return: A dataframe with the predicted score for each user-item pair
     """
 
     # Convert the list of user ids and item ids to the internal indices used by the model
@@ -566,15 +545,15 @@ def predict_on_users(model, dataset, list_of_user_ids, list_of_item_ids, item_fe
 
 def format_recommendations(predictions_df, item_features_df=None, user_features_df=None, item_features_col=None, user_features_col=None, item_id_col=None, user_id_col=None):
     """
-
-    :param predictions_df:
-    :param item_features_df:
-    :param user_features_df:
-    :param item_features_col:
-    :param user_features_col:
-    :param item_id_col:
-    :param user_id_col:
-    :return:
+    Formats the recommendation results in the dataframe produced by the predict_on_users function
+    :param predictions_df: The dataframe produced by the predict_on_users function
+    :param item_features_df: The original dataframe that contains the item ids and the features that went into the item_features sparse matrix
+    :param user_features_df: The original dataframe that contains the user ids and the features that went into the user_features sparse matrix
+    :param item_features_col: The name of the column in the item_features_df you want to us to describe the items being considered (i.e. study title, book title, etc).
+    :param user_features_col: The name of the column in the user_features_df you want to us to describe the users being considered (i.e. name, twitter handle, etc).
+    :param item_id_col: Column name in the item_features_df which contains the original item ids
+    :param user_id_col: Column name in the user_features_df which contains the original user ids
+    :return: Nothing. Just prints the results to the screen
     """
     if isinstance(item_features_df, pd.core.frame.DataFrame):
         if not item_features_col:
