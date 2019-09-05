@@ -92,6 +92,11 @@ def fit_model(interactions, hyperparams_dict, fit_params_dict, test_percentage=0
                                       k=k)
     trials = Trials()
 
+    if cv is not None:
+        print('Running in cross validation mode for {0} folds'.format(cv))
+    else:
+        print('Not running in cross validation mode. Will default to single train test split')
+
     if random_search:
         best = fmin(f_objective, params, algo=tpe.rand.suggest, max_evals=max_evals, trials=trials, rstate=np.random.RandomState(seed))
 
@@ -311,8 +316,7 @@ def hyperopt_valid(params):
     k = params.pop('k')
 
     # TODO: build in option to do informed train/valid splitting to avoid partial cold start predictions if desired.
-    if cv:
-        print('Running in cross validation mode for {0} folds'.format(cv))
+    if cv is not None:
         fold_results_list = []
 
         for fold in range(cv):
@@ -336,8 +340,6 @@ def hyperopt_valid(params):
 
         return np.mean(fold_results_list)
     else:
-        print('Not running in cross validation mode. Will default to single train test split')
-
         train_, valid_ = random_train_test_split(interactions=all_data, test_percentage=test_percentage)
 
         score = fit_eval(params=params,
