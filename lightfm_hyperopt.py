@@ -223,7 +223,7 @@ def get_best_hyperparams(hyperparams_dict, fit_params_dict, best, file_name=None
 
     if file_name is not None:
         json_out =json.dumps(best_params)
-        f = open(file_name, "W")
+        f = open(file_name, "w")
         f.write(json_out)
         f.close()
 
@@ -391,7 +391,7 @@ def fit_cv(params, interactions, eval_metric, num_epochs, num_threads, test_perc
         print('The random seed is not set.  This will lead to potentially non-reproducible results.')
 
     if cv is not None:
-        print('Fitting model in cross validation model for {0} folds'.format(cv))
+        print('Fitting model in cross validation mode for {0} folds'.format(cv))
 
         # Initialize a list to store cross validation results
         # TODO: Generalize this to multi-evaluation metric outputs
@@ -447,31 +447,34 @@ def fit_cv(params, interactions, eval_metric, num_epochs, num_threads, test_perc
         return model
 
 
-def save_model(model, file_name):
+def save_model(model, filename):
     """
     Function to save model
     :param model: The trained model to save
-    :param file_name: The directory and name of the file you want to use. The format is .npz
+    :param filename: The directory and name of the file you want to use. The format is .npz
     :return:
     """
     model_params = {value: getattr(model, value) for value in possible_model_weights}
     hyperparams = model.get_params()
     model_params.update(hyperparams)
 
-    np.savez_compressed(file_name, **model_params)
+    np.savez_compressed(filename, **model_params)
 
-    print('Model saved')
+    if os.path.isfile(filename):
+        print('Model saved')
+    else:
+        print('Something went wrong. Model not saved.')
 
 
-def load_model(file_name):
+def load_model(filename):
     """
     Function to load saved model
-    :param file_name: The directory and name of the .npz file with the saved model
+    :param filename: The directory and name of the .npz file with the saved model
     :return: The saved model object
     """
     model = LightFM()
 
-    numpy_model = np.load(file_name, allow_pickle=True)
+    numpy_model = np.load(filename, allow_pickle=True)
     for value in [x for x in numpy_model if x in possible_model_weights]:
         setattr(model, value, numpy_model[value])
 
