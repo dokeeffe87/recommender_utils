@@ -573,7 +573,7 @@ def format_recommendations(predictions_df, item_features_df=None, user_features_
         print('Recommendations for input ID: {0}'.format(id_))
         if user_features_col:
             print('User description: {0}'.format(user_features_df[user_features_col].loc[(user_features_col[user_id_col] == id_)].values[0]))
-        for i in range(2):
+        for i in range(df_.shape[0]):
             item = df_['item_id'].iloc[i]
             # We'll leave the score as is for now, but we may want to normalize the scale at some point
             score = df_['score'].iloc[i]
@@ -589,9 +589,9 @@ def save_data_objects(filename, dataset=None, matrix=None):
     """
     Function to save data objects used for the model
     :param filename: Directory and name of the file you want to save data as. Dataset objects should be .pickle files. Matrix objects should be .npz files
-    :param dataset: Dataset object used by LightFM
-    :param matrix:
-    :return:
+    :param dataset: Dataset object used by LightFM. Should be saved as a .pickle file
+    :param matrix: A scipy sparse matrix containing data.  Should be a .npz file
+    :return: Nothing. Saves the input file at the specified directory + file name
     """
     # TODO: Add support for multiple saves at once.
     if dataset is not None:
