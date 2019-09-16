@@ -19,6 +19,7 @@ import pandas as pd
 import pickle
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 import seaborn as sns
 
 from itertools import chain
@@ -619,3 +620,79 @@ def load_data_objects(filename, is_dataset=False, is_matrix=False):
         matrix = sparse.load_npz(filename)
 
         return matrix
+
+
+def make_long_tail_plot(df, item_id_column, save_name, interaction_type, take_top_n=None, percentage=None, x_labels=True):
+    """
+    Makes a long tail plot of the interactions data. Inspired by: https://github.com/statisticianinstilettos/recmetrics
+    :param df:
+    :param item_id_column:
+    :param save_name:
+    :param interaction_type:
+    :param take_top_n:
+    :param percentage:
+    :param x_labels:
+    :return: None. Saves a plot instead. Doesn't display the plot since this could cause rendering issues with large datasets.
+    """
+    # TODO: Make this more scalable. It struggles with 100,000+ data points.
+    volume_df = pd.DataFrame(df[item_id_column].value_counts())
+    volume_df.reset_index(inplace=True)
+    volume_df.columns = [item_id_column, "volume"]
+    volume_df[item_id_column] = volume_df[item_id_column].astype(str)
+    volume_df['cumulative_volume'] = volume_df['volume'].cumsum()
+    volume_df['percent_of_total_volume'] = volume_df['cumulative_volume'] / volume_df['volume'].sum()
+    volume_df.sort_values(by='volume', ascending=False)
+
+    if take_top_n is not None:
+        volume_df = volume_df.head(take_top_n)
+    else:
+        print("Using all interaction data.  This could result in long run times for large datasets.")
+        print('Consider using the take_top_n argument to limit to the top n interactions if you have more than 10,000 in your dataset.')
+
+    # line plot of cumulative volume
+    x = range(0, len(volume_df))
+    f = plt.figure(figsize=(20, 10))
+    ax = sns.lineplot(x, y="volume", data=volume_df, color="black")
+    plt.xticks(x)
+
+    # set labels
+    ax.set_title('Long Tail Plot')
+    ax.set_ylabel('# of ' + interaction_type)
+    ax.set_xlabel(item_id_column)
+    ax.tick_params(axis='x', labelrotation=90)
+
+    if percentage is not None:
+        # plot vertical line at the tail location
+        head = volume_df[volume_df.percent_of_total_volume <= percentage]
+        tail = volume_df[volume_df.percent_of_total_volume > percentage]
+        items_in_head = len(head)
+        items_in_tail = len(tail)
+        plt.axvline(x=items_in_head, color="red", linestyle='--')
+
+        # fill area under plot
+        head = head.append(tail.head(1))
+        x1 = head.index.values
+        y1 = head['volume']
+        x2 = tail.index.values
+        y2 = tail['volume']
+        ax.fill_between(x1, y1, color="blue", alpha=0.2)
+        ax.fill_between(x2, y2, color="orange", alpha=0.2)
+
+        # create legend
+        legend_elements = [Line2D([0], [0], marker='o', color='w', label=str(items_in_head) + ': items in the head', markerfacecolor='blue', markersize=5),
+                           Line2D([0], [0], marker='o', color='w', label=str(items_in_tail) + ': items in the tail', markerfacecolor='orange', markersize=5)]
+        ax.legend(handles=legend_elements, loc=1)
+
+    else:
+        x1 = volume_df[item_id_column]
+        y1 = volume_df['volume']
+        ax.fill_between(x1, y1, color="blue", alpha=0.3)
+    if not x_labels:
+        plt.xticks([], [])
+        ax.set(xticklabels=[])
+    else:
+        ax.set_xticklabels(labels=volume_df[item_id_column], rotation=45, ha="right")
+
+    plt.savefig(save_name)
+
+    return None
