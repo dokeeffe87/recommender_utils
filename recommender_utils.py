@@ -300,7 +300,7 @@ def prepare_user_features_from_dict(dataset, user_features_dict, features_list):
     return user_features
 
 
-def compute_eval_metrics(model, train_interactions, test_interactions, item_features=None, user_features=None, tuple_of_k=(10, 20, 50), compute_on_train=False, preserve_rows=False, num_threads=1):
+def compute_eval_metrics(model, train_interactions, test_interactions, item_features=None, user_features=None, tuple_of_k=(10, 20, 50), compute_on_train=False, preserve_rows=False, check_intersections=False, num_threads=1):
     """
     Function to compute standard evaluation metrics on given test set and model
     :param model: The model to test
@@ -312,6 +312,7 @@ def compute_eval_metrics(model, train_interactions, test_interactions, item_feat
     :param compute_on_train: Set true if you want to see the metrics computed on the training set as well
     :param preserve_rows: Preserve rows parameter in the LightFM provided metrics: When False (default), the number of rows in the output will be equal to the number of users with interactions in the
                           evaluation set. When True, the number of rows in the output will be equal to the number of users
+    :param check_intersections: Check for intersecting train and test interactions
     :param num_threads: The number of threads to use
     :return: dictionary with the metrics as keys and the list of results as values
     """
@@ -327,6 +328,7 @@ def compute_eval_metrics(model, train_interactions, test_interactions, item_feat
                               item_features=item_features,
                               user_features=user_features,
                               preserve_rows=preserve_rows,
+                              check_intersections=check_intersections,
                               num_threads=num_threads)
     all_results_dict['test_auc_list'] = test_auc_list
 
@@ -339,6 +341,7 @@ def compute_eval_metrics(model, train_interactions, test_interactions, item_feat
                                        item_features=item_features,
                                        user_features=user_features,
                                        preserve_rows=preserve_rows,
+                                       check_intersections=check_intersections,
                                        num_threads=num_threads,
                                        k=k)
         all_results_dict['test_recall_at_{0}_list'.format(k)] = test_recall_list
@@ -352,6 +355,7 @@ def compute_eval_metrics(model, train_interactions, test_interactions, item_feat
                                              item_features=item_features,
                                              user_features=user_features,
                                              preserve_rows=preserve_rows,
+                                             check_intersections=check_intersections,
                                              num_threads=num_threads,
                                              k=k)
         all_results_dict['test_precision_at_{0}_list'.format(k)] = test_precision_list
@@ -364,6 +368,7 @@ def compute_eval_metrics(model, train_interactions, test_interactions, item_feat
                                                 item_features=item_features,
                                                 user_features=user_features,
                                                 preserve_rows=preserve_rows,
+                                                check_intersections=check_intersections,
                                                 num_threads=num_threads)
     all_results_dict['test_reciprocal_rank_list'] = test_reciprocal_rank_list
 
