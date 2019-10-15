@@ -30,6 +30,8 @@ from lightfm import LightFM
 from lightfm.cross_validation import random_train_test_split
 from lightfm.evaluation import auc_score, precision_at_k, recall_at_k, reciprocal_rank
 
+from time import gmtime, strftime
+
 from hyperopt import fmin, tpe, hp, STATUS_OK, Trials
 
 # Define the possible model weights for saving and loading
@@ -45,6 +47,105 @@ possible_model_weights = {"user_embeddings",
                           "user_bias_gradients",
                           "user_embedding_momentum",
                           "user_embedding_gradients"}
+
+
+def fit_model_batch(interactions, hyperparams_dict, fit_params_dict, batch_size, test_percentage=0.1, item_features=None, user_features=None, cv=None, random_search=False, hyper_opt_search=True, max_evals=10, seed=0, eval_metric='auc_score', k=10, verbose=True):
+    """
+    Higher level function to actually run all the aspects of the hyperparameter search.
+    :param interactions: The full training set (sparse matrix) of user/item interactions
+    :param hyperparams_dict: The dictionary of model hyperparameters.  The keys should be the hyperparameter name and the values a list with the first element the HyperOpt variable type and the second
+                             element should be a list of possible values to consider for the hyperparameter.  If only a key and number value are provided, it is assumed that the variable is a choice
+                             type and if the only number you want to consider in your model optimization for that hyperparameters
+    :param fit_params_dict: The dictionary of fit parameters.  The keys should be the parameter name and the values a list with the first element the HyperOpt variable type and the second
+                             element should be a list of possible values to consider for the parameter.  If only a key and number value are provided, it is assumed that the variable is a choice
+                             type and if the only number you want to consider in your model optimization for that parameters
+    :param batch_size: Number of evaluations to run before dumping current best results to file
+    :param test_percentage: The percentage of the training set you want to use for validation
+    :param item_features: The sparse matrix of features for the items
+    :param user_features: The sparse matrix of features for the users
+    :param cv: The number of cross validation folds to use.  Should be an interger number of folds or None if you don't want to run with cross validation
+    :param random_search: True if you want to use randomized search over the parameters
+    :param hyper_opt_search: True if you want to use tree parzen estimators algorithm for parameter search
+    :param max_evals: The maximum number of evaluations to use for parameter search
+    :param seed: The random seed to use in model building.  Doesn't apply to the train/test split, but should start the model training at the same place
+    :param verbose: Controls the verbosity of the model fit.  Default is True. This means the model will print out the epoch it's on as it's training
+    :return: The best found parameters and the history trials object
+    """
+    if random_search:
+        if not hyper_opt_search:
+            print('Running randomized hyperparameter search')
+        else:
+            print('Please select either random search or hyperopt search')
+            return None
+
+    if hyper_opt_search:
+        if not random_search:
+            print('Running hyperopt hyperparameter search')
+        else:
+            print('Please select either random search or hyperopt search')
+            return None
+
+    params = prep_params_for_hyperopt(hyperparams_dict=hyperparams_dict,
+                                      fit_params_dict=fit_params_dict,
+                                      interactions=interactions,
+                                      test_percentage=test_percentage,
+                                      item_features=item_features,
+                                      user_features=user_features,
+                                      cv=cv,
+                                      eval_metric=eval_metric,
+                                      k=k,
+                                      verbose=verbose)
+    trials = Trials()
+
+    if cv is not None:
+        print('Running in cross validation mode for {0} folds'.format(cv))
+    else:
+        print('Not running in cross validation mode. Will default to single train test split')
+
+    if random_search:
+        # Iterate over the maximum evaluations by batch size
+        for i in range(batch_size, max_evals + 1, batch_size):
+            best = fmin(f_objective, params, algo=tpe.rand.suggest, max_evals=max_evals, trials=trials, rstate=np.random.RandomState(seed))
+
+            # Get the current time to index the output files.
+            # We output the current trials object to restart the search at the appropriate place and the current best parameters found.
+            current_time = strftime("%Y-%m-%d_%H%M%S", gmtime())
+            file_name_trials = "dump_trials_at_eval_{0}_{1}.p".format(i, current_time)
+            file_name_best = "dump_best_params_at_eval_{0}_{1}.p".format(i, current_time)
+            pickle.dump(trials, open(file_name_trials, "wb"))
+
+            # Reload the trials object to restart the search.
+            # TODO: Do I need to to do here, or can I just re-assign the variable?
+            trials = pickle.load(open(file_name_trials, "rb"))
+
+            # Dump the best seen parameters so far.
+            # TODO: format this appropriately
+            pickle.dump(best, open(file_name_best, "wb"))
+
+        return best, trials
+
+    if hyper_opt_search:
+        # Iterate over the maximum evaluations by batch size
+        for i in range(batch_size, max_evals + 1, batch_size):
+
+            best = fmin(f_objective, params, algo=tpe.suggest, max_evals=i, trials=trials, rstate=np.random.RandomState(seed))
+
+            # Get the current time to index the output files.
+            # We output the current trials object to restart the search at the appropriate place and the current best parameters found.
+            current_time = strftime("%Y-%m-%d_%H%M%S", gmtime())
+            file_name_trials = "dump_trials_at_eval_{0}_{1}.p".format(i, current_time)
+            file_name_best = "dump_best_params_at_eval_{0}_{1}.p".format(i, current_time)
+            pickle.dump(trials, open(file_name_trials, "wb"))
+
+            # Reload the trials object to restart the search.
+            # TODO: Do I need to to do here, or can I just re-assign the variable?
+            trials = pickle.load(open(file_name_trials, "rb"))
+
+            # Dump the best seen parameters so far.
+            # TODO: format this appropriately
+            pickle.dump(best, open(file_name_best, "wb"))
+
+        return best, trials
 
 
 def fit_model(interactions, hyperparams_dict, fit_params_dict, test_percentage=0.1, item_features=None, user_features=None, cv=None, random_search=False, hyper_opt_search=True, max_evals=10, seed=0, eval_metric='auc_score', k=10, verbose=True):
