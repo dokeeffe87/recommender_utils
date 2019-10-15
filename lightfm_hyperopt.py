@@ -47,7 +47,7 @@ possible_model_weights = {"user_embeddings",
                           "user_embedding_gradients"}
 
 
-def fit_model(interactions, hyperparams_dict, fit_params_dict, test_percentage=0.1, item_features=None, user_features=None, cv=None, random_search=False, hyper_opt_search=True, max_evals=10, seed=0, eval_metric='auc_score', k=10):
+def fit_model(interactions, hyperparams_dict, fit_params_dict, test_percentage=0.1, item_features=None, user_features=None, cv=None, random_search=False, hyper_opt_search=True, max_evals=10, seed=0, eval_metric='auc_score', k=10, verbose=True):
     """
     Higher level function to actually run all the aspects of the hyperparameter search.
     :param interactions: The full training set (sparse matrix) of user/item interactions
@@ -65,6 +65,7 @@ def fit_model(interactions, hyperparams_dict, fit_params_dict, test_percentage=0
     :param hyper_opt_search: True if you want to use tree parzen estimators algorithm for parameter search
     :param max_evals: The maximum number of evaluations to use for parameter search
     :param seed: The random seed to use in model building.  Doesn't apply to the train/test split, but should start the model training at the same place
+    :param verbose: Controls the verbosity of the model fit.  Default is True. This means the model will print out the epoch it's on as it's training
     :return: The best found parameters and the history trials object
     """
     if random_search:
@@ -89,7 +90,8 @@ def fit_model(interactions, hyperparams_dict, fit_params_dict, test_percentage=0
                                       user_features=user_features,
                                       cv=cv,
                                       eval_metric=eval_metric,
-                                      k=k)
+                                      k=k,
+                                      verbose=verbose)
     trials = Trials()
 
     if cv is not None:
@@ -108,7 +110,7 @@ def fit_model(interactions, hyperparams_dict, fit_params_dict, test_percentage=0
         return best, trials
 
 
-def prep_params_for_hyperopt(hyperparams_dict, fit_params_dict, interactions, test_percentage, item_features, user_features, cv, eval_metric, k):
+def prep_params_for_hyperopt(hyperparams_dict, fit_params_dict, interactions, test_percentage, item_features, user_features, cv, eval_metric, k, verbose):
     """
     Formats the input range of hyperparameters and fit parameters to search over for model optimization for us in HyperOpt
     :param hyperparams_dict: The dictionary of model hyperparameters.  The keys should be the hyperparameter name and the values a list with the first element the HyperOpt variable type and the second
@@ -124,6 +126,7 @@ def prep_params_for_hyperopt(hyperparams_dict, fit_params_dict, interactions, te
     :param cv: The number of cross validation folds to use. Should be an integer number of folds, or None if you don't want to run with cross validation
     :param eval_metric: The evaluation metric to use
     :param k: The k parameter for the precision at k and recall at k metrics.  Only relevant if you are using one of these metrics for valuation
+    :param verbose: Controls the verbosity of the model fit.  Default is True. This means the model will print out the epoch it's on as it's training
     :return: The parameter grid formated to work with HyperOpt
     """
     params = {}
@@ -195,6 +198,9 @@ def prep_params_for_hyperopt(hyperparams_dict, fit_params_dict, interactions, te
     # Parse k
     params['k'] = hp.choice('k', [k])
 
+    # Parse verbosity flag
+    params['verbose'] = hp.choice('verbose', [verbose])
+
     return params
 
 
@@ -242,7 +248,7 @@ def load_best_params(file_name):
     return best_params
 
 
-def fit_eval(params, eval_metric, train_interactions, valid_interactions, num_epochs, num_threads, item_features=None, user_features=None, k=10):
+def fit_eval(params, eval_metric, train_interactions, valid_interactions, num_epochs, num_threads, item_features=None, user_features=None, k=10, verbose=True):
     """
     Helper function to fit LightFM model with desired parameters and automatically compute desired evaluation metric
     :param params: Dictionary of hyperparameters to pass to the LightFM model
@@ -253,6 +259,8 @@ def fit_eval(params, eval_metric, train_interactions, valid_interactions, num_ep
     :param num_threads: The number of threads to use for training
     :param item_features: The sparse matrix of features for the items
     :param user_features: The sparse matrix of features for the users
+    :param k: The k parameter for precision at k and recall at k metrics.  Optional. Doesn't do anything if you aren't using one of these metrics
+    :param verbose: Controls the verbosity of the model fit.  Default is True. This means the model will print out the epoch it's on as it's training
     :return:
     """
     model = LightFM(**params)
@@ -260,7 +268,8 @@ def fit_eval(params, eval_metric, train_interactions, valid_interactions, num_ep
               epochs=num_epochs,
               num_threads=num_threads,
               item_features=item_features,
-              user_features=user_features)
+              user_features=user_features,
+              verbose=verbose)
 
     if eval_metric == 'auc_score':
         score = auc_score(model,
@@ -314,6 +323,7 @@ def hyperopt_valid(params):
     num_threads = params.pop('num_threads')
     eval_metric = params.pop('eval_metric')
     k = params.pop('k')
+    verbose = params.pop('verbose')
 
     # TODO: build in option to do informed train/valid splitting to avoid partial cold start predictions if desired.
     if cv is not None:
@@ -330,7 +340,8 @@ def hyperopt_valid(params):
                              num_threads=num_threads,
                              item_features=item_features,
                              user_features=user_features,
-                             k=k)
+                             k=k,
+                             verbose=verbose)
 
             fold_results_list.append(score)
 
@@ -350,7 +361,8 @@ def hyperopt_valid(params):
                          num_threads=num_threads,
                          item_features=item_features,
                          user_features=user_features,
-                         k=k)
+                         k=k,
+                         verbose=verbose)
 
         return score
 
@@ -365,7 +377,7 @@ def f_objective(params):
     return {'loss': -loss, 'status': STATUS_OK}
 
 
-def fit_cv(params, interactions, eval_metric, num_epochs, num_threads, test_percentage=None, item_features=None, user_features=None, cv=None, k=10, seed=None, refit=False):
+def fit_cv(params, interactions, eval_metric, num_epochs, num_threads, test_percentage=None, item_features=None, user_features=None, cv=None, k=10, seed=None, refit=False, verbose=True):
     """
     Fit a LightFM model with or without cross validation. The idea here is to randomly divide the training data and build a model on one set and test on a another to measure performance stability
     :param params: The hyperparameters dictionary to pass to LightFM model
@@ -380,6 +392,7 @@ def fit_cv(params, interactions, eval_metric, num_epochs, num_threads, test_perc
     :param k: The k parameter for the precision at k and recall at k metrics.  Only relevant if you are using one of these metrics for valuation
     :param seed: The random seed to use in model building.  Doesn't apply to the train/test split, but should start the model training at the same place
     :param refit: If true, refit the model to the entire training data once the cv evaluation is complete
+    :param verbose: Controls the verbosity of the model fit.  Default is True. This means the model will print out the epoch it's on as it's training
     :return: if refit is True, returns the model trained on the full training set and a list of cross validation scores for each fold.  Otherwise, just the cross validation scores list is returned
     """
     if test_percentage is None:
@@ -411,7 +424,8 @@ def fit_cv(params, interactions, eval_metric, num_epochs, num_threads, test_perc
                              num_threads=num_threads,
                              item_features=item_features,
                              user_features=user_features,
-                             k=k)
+                             k=k,
+                             verbose=verbose)
 
             score_list.append(score)
 
@@ -427,7 +441,8 @@ def fit_cv(params, interactions, eval_metric, num_epochs, num_threads, test_perc
                       epochs=num_epochs,
                       num_threads=num_threads,
                       item_features=item_features,
-                      user_features=user_features)
+                      user_features=user_features,
+                      verbose=verbose)
 
             return model, score_list
         else:
@@ -442,7 +457,8 @@ def fit_cv(params, interactions, eval_metric, num_epochs, num_threads, test_perc
                   epochs=num_epochs,
                   num_threads=num_threads,
                   item_features=item_features,
-                  user_features=user_features)
+                  user_features=user_features,
+                  verbose=verbose)
 
         return model
 
