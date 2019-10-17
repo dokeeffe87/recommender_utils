@@ -104,46 +104,40 @@ def fit_model_batch(interactions, hyperparams_dict, fit_params_dict, batch_size,
 
     if random_search:
         # Iterate over the maximum evaluations by batch size
+        print('Running for {0} evaluations in batches of {1} for a total of {2} batches'.format(max_evals, batch_size, max_evals // batch_size))
         for i in range(batch_size, max_evals + 1, batch_size):
-            best = fmin(f_objective, params, algo=tpe.rand.suggest, max_evals=max_evals, trials=trials, rstate=np.random.RandomState(seed))
 
-            # Get the current time to index the output files.
-            # We output the current trials object to restart the search at the appropriate place and the current best parameters found.
-            current_time = strftime("%Y-%m-%d_%H%M%S", gmtime())
-            file_name_trials = "dump_trials_at_eval_{0}_{1}.p".format(i, current_time)
-            file_name_best = "dump_best_params_at_eval_{0}_{1}.p".format(i, current_time)
-            pickle.dump(trials, open(file_name_trials, "wb"))
+            best = fmin(f_objective, params, algo=tpe.rand.suggest, max_evals=i, trials=trials, rstate=np.random.RandomState(seed))
 
-            # Reload the trials object to restart the search.
+            # Output the batch findings so far
+            file_name_trials = output_checkpoint_files(hyperparams_dict, fit_params_dict, i, trials, best)
+
+            # Reload the trials object to restart the search where we left off
             # TODO: Do I need to to do here, or can I just re-assign the variable?
             trials = pickle.load(open(file_name_trials, "rb"))
 
-            # Dump the best seen parameters so far.
-            # TODO: format this appropriately
-            pickle.dump(best, open(file_name_best, "wb"))
+            batch_number = int(max_evals * (i / max_evals) / batch_size)
+            print('completed batch: {0}'.format(batch_number))
+            print('completed evaluations: {0} to {1}'.format(i - batch_size, i))
 
         return best, trials
 
     if hyper_opt_search:
         # Iterate over the maximum evaluations by batch size
+        print('Running for {0} evaluations in batches of {1} for a total of {2} batches'.format(max_evals, batch_size, max_evals // batch_size))
         for i in range(batch_size, max_evals + 1, batch_size):
 
             best = fmin(f_objective, params, algo=tpe.suggest, max_evals=i, trials=trials, rstate=np.random.RandomState(seed))
 
-            # Get the current time to index the output files.
-            # We output the current trials object to restart the search at the appropriate place and the current best parameters found.
-            current_time = strftime("%Y-%m-%d_%H%M%S", gmtime())
-            file_name_trials = "dump_trials_at_eval_{0}_{1}.p".format(i, current_time)
-            file_name_best = "dump_best_params_at_eval_{0}_{1}.p".format(i, current_time)
-            pickle.dump(trials, open(file_name_trials, "wb"))
-
-            # Reload the trials object to restart the search.
+            # Output the batch findings so far
+            file_name_trials = output_checkpoint_files(hyperparams_dict, fit_params_dict, i, trials, best)
+            # Reload the trials object to restart the search where we left off
             # TODO: Do I need to to do here, or can I just re-assign the variable?
             trials = pickle.load(open(file_name_trials, "rb"))
 
-            # Dump the best seen parameters so far.
-            # TODO: format this appropriately
-            pickle.dump(best, open(file_name_best, "wb"))
+            batch_number = int(max_evals * (i / max_evals) / batch_size)
+            print('completed batch: {0}'.format(batch_number))
+            print('completed evaluations: {0} to {1}'.format(i - batch_size, i))
 
         return best, trials
 
@@ -595,6 +589,40 @@ def load_model(filename):
     for value in [x for x in numpy_model if x in possible_model_weights]:
         setattr(model, value, numpy_model[value])
 
-    model.set_params(**{k: v for k, v in numpy_model.items() if k not in possible_model_params})
+    model.set_params(**{k: v for k, v in numpy_model.items() if k not in possible_model_weights})
 
     return model
+
+
+def output_checkpoint_files(hyperparams_dict, fit_params_dict, batch_number, trials, best):
+    """
+    Function to output the trials history and best found hyperparameters so far during the search phase.  Works with the batch search in fit_model_batch.
+    :param hyperparams_dict: Dictionary of hyperparameter values
+    :param fit_params_dict: Dictionary of fit parameter values
+    :param batch_number: The max_evals in this batch.  This is the i index in fit_model_batch.
+    :param trials: Trials object from hyperopt fmin
+    :param best: The best found parameters dictionary output by hyperopt fmin
+    :return: Nothing. Just saves the files with the current time and batch number
+    """
+    # Get the current time to index the output files.
+    # We output the current trials object to restart the search at the appropriate place and the current best parameters found.
+    current_time = strftime("%Y-%m-%d_%H%M%S", gmtime())
+    file_name_trials = "dump_trials_at_eval_{0}_{1}.p".format(batch_number, current_time)
+    file_name_best_raw = "dump_best_params_raw_output_at_eval_{0}_{1}.p".format(batch_number, current_time)
+    file_name_best_params_formatted = "dump_best_params_at_eval_{0}_{1}.p".format(batch_number, current_time)
+
+    # Output the trials object.  You need this to restart the search at the end of this batch if you want to.
+    pickle.dump(trials, open(file_name_trials, "wb"))
+
+    # Reload the trials object to restart the search.
+    # TODO: Do I need to to do here, or can I just re-assign the variable?
+    # trials = pickle.load(open(file_name_trials, "rb"))
+
+    # Dump the best seen parameters so far.
+    # TODO: format this appropriately
+    pickle.dump(best, open(file_name_best_raw, "wb"))
+
+    # Get the formatted hyperparameters and fit parameters found so far
+    get_best_hyperparams(hyperparams_dict, fit_params_dict, best, file_name=file_name_best_params_formatted)
+
+    return file_name_trials
