@@ -49,9 +49,114 @@ possible_model_weights = {"user_embeddings",
                           "user_embedding_gradients"}
 
 
+def fit_model_early_stopping(interactions, hyperparams_dict, fit_params_dict, test_percentage=0.1, item_features=None, user_features=None, cv=None, random_search=False, hyper_opt_search=True, max_evals=10, early_stop_evals = 10, seed=0, eval_metric='auc_score', k=10, verbose=True):
+    """
+    Higher level function to actually run all the aspects of the hyperparameter search. This one works with early stopping; it will end the parameter search when no performance improvement has been
+    detected after early_stop_evals threshold number of evaluations
+    :param interactions: The full training set (sparse matrix) of user/item interactions
+    :param hyperparams_dict: The dictionary of model hyperparameters.  The keys should be the hyperparameter name and the values a list with the first element the HyperOpt variable type and the second
+                             element should be a list of possible values to consider for the hyperparameter.  If only a key and number value are provided, it is assumed that the variable is a choice
+                             type and if the only number you want to consider in your model optimization for that hyperparameters
+    :param fit_params_dict: The dictionary of fit parameters.  The keys should be the parameter name and the values a list with the first element the HyperOpt variable type and the second
+                             element should be a list of possible values to consider for the parameter.  If only a key and number value are provided, it is assumed that the variable is a choice
+                             type and if the only number you want to consider in your model optimization for that parameters
+    :param test_percentage: The percentage of the training set you want to use for validation
+    :param item_features: The sparse matrix of features for the items
+    :param user_features: The sparse matrix of features for the users
+    :param cv: The number of cross validation folds to use.  Should be an interger number of folds or None if you don't want to run with cross validation
+    :param random_search: True if you want to use randomized search over the parameters
+    :param hyper_opt_search: True if you want to use tree parzen estimators algorithm for parameter search
+    :param max_evals: The maximum number of evaluations to use for parameter search
+    :param early_stop_evals: The number of evaluations that need to go by with no improvement to trigger the early stopping condition
+    :param seed: The random seed to use in model building.  Doesn't apply to the train/test split, but should start the model training at the same place
+    :param verbose: Controls the verbosity of the model fit.  Default is True. This means the model will print out the epoch it's on as it's training
+    :return: The best found parameters and the history trials object
+    """
+    # TODO: I don't think it makes a lot of sense to have yet another function to do this.  Merge this with the batch fitting function.
+    if random_search:
+        if not hyper_opt_search:
+            print('Running randomized hyperparameter search')
+        else:
+            print('Please select either random search or hyperopt search')
+            return None
+
+    if hyper_opt_search:
+        if not random_search:
+            print('Running hyperopt hyperparameter search')
+        else:
+            print('Please select either random search or hyperopt search')
+            return None
+
+    params = prep_params_for_hyperopt(hyperparams_dict=hyperparams_dict,
+                                      fit_params_dict=fit_params_dict,
+                                      interactions=interactions,
+                                      test_percentage=test_percentage,
+                                      item_features=item_features,
+                                      user_features=user_features,
+                                      cv=cv,
+                                      eval_metric=eval_metric,
+                                      k=k,
+                                      verbose=verbose)
+    trials = Trials()
+
+    if cv is not None:
+        print('Running in cross validation mode for {0} folds'.format(cv))
+    else:
+        print('Not running in cross validation mode. Will default to single train test split')
+
+    if random_search:
+        # Run for early stopping
+        print('Running for {0} evaluations with early stopping checks every {1} evaluations'.format(max_evals, early_stop_evals))
+        best_loss_so_far = 0
+        for i in range(early_stop_evals, max_evals + 1, early_stop_evals):
+            best = fmin(f_objective, params, algo=tpe.rand.suggest, max_evals=i, trials=trials, rstate=np.random.RandomState(seed))
+            # Output the batch findings so far
+            file_name_trials = output_checkpoint_files(hyperparams_dict, fit_params_dict, i, trials, best)
+            # Reload the trials object to restart the search where we left off
+            # TODO: Do I need to to do here, or can I just re-assign the variable?
+            trials = pickle.load(open(file_name_trials, "rb"))
+
+            current_loss = trials.best_trial['result']['loss']
+
+            if current_loss < best_loss_so_far:
+                best_loss_so_far = current_loss
+                print('Loss has improved. Continuing with search')
+            else:
+                print('No loss improvement after {0} evaluations. This has triggered the early stopping criterion.'.format(early_stop_evals))
+                return best, trials
+
+        return best, trials
+
+    if hyper_opt_search:
+        # Run for early stopping
+        print('Running for {0} evaluations with early stopping checks every {1} evaluations'.format(max_evals, early_stop_evals))
+        best_loss_so_far = 0
+        for i in range(early_stop_evals, max_evals + 1, early_stop_evals):
+
+            best = fmin(f_objective, params, algo=tpe.suggest, max_evals=i, trials=trials, rstate=np.random.RandomState(seed))
+
+            # Output the batch findings so far
+            file_name_trials = output_checkpoint_files(hyperparams_dict, fit_params_dict, i, trials, best)
+            # Reload the trials object to restart the search where we left off
+            # TODO: Do I need to to do here, or can I just re-assign the variable?
+            trials = pickle.load(open(file_name_trials, "rb"))
+
+            current_loss = trials.best_trial['result']['loss']
+
+            if current_loss < best_loss_so_far:
+                best_loss_so_far = current_loss
+                print('Loss has improved. Continuing with search')
+            else:
+                print('No loss improvement after {0} evaluations. This has triggered the early stopping criterion.'.format(early_stop_evals))
+                return best, trials
+
+        return best, trials
+
+
 def fit_model_batch(interactions, hyperparams_dict, fit_params_dict, batch_size, test_percentage=0.1, item_features=None, user_features=None, cv=None, random_search=False, hyper_opt_search=True, max_evals=10, seed=0, eval_metric='auc_score', k=10, verbose=True):
     """
-    Higher level function to actually run all the aspects of the hyperparameter search.
+    Higher level function to actually run all the aspects of the hyperparameter search. This version works with batches. The hyperparameter search will occur as per usual, but the results will be
+    logged every batch_size number of evaluations and restarted from there.
     :param interactions: The full training set (sparse matrix) of user/item interactions
     :param hyperparams_dict: The dictionary of model hyperparameters.  The keys should be the hyperparameter name and the values a list with the first element the HyperOpt variable type and the second
                              element should be a list of possible values to consider for the hyperparameter.  If only a key and number value are provided, it is assumed that the variable is a choice
@@ -63,7 +168,7 @@ def fit_model_batch(interactions, hyperparams_dict, fit_params_dict, batch_size,
     :param test_percentage: The percentage of the training set you want to use for validation
     :param item_features: The sparse matrix of features for the items
     :param user_features: The sparse matrix of features for the users
-    :param cv: The number of cross validation folds to use.  Should be an interger number of folds or None if you don't want to run with cross validation
+    :param cv: The number of cross validation folds to use.  Should be an integer number of folds or None if you don't want to run with cross validation
     :param random_search: True if you want to use randomized search over the parameters
     :param hyper_opt_search: True if you want to use tree parzen estimators algorithm for parameter search
     :param max_evals: The maximum number of evaluations to use for parameter search
@@ -207,7 +312,7 @@ def fit_model(interactions, hyperparams_dict, fit_params_dict, test_percentage=0
 
 def prep_params_for_hyperopt(hyperparams_dict, fit_params_dict, interactions, test_percentage, item_features, user_features, cv, eval_metric, k, verbose):
     """
-    Formats the input range of hyperparameters and fit parameters to search over for model optimization for us in HyperOpt
+    Formats the input range of hyperparameters and fit parameters to search over for model optimization for use in HyperOpt
     :param hyperparams_dict: The dictionary of model hyperparameters.  The keys should be the hyperparameter name and the values a list with the first element the HyperOpt variable type and the second
                              element should be a list of possible values to consider for the hyperparameter.  If only a key and number value are provided, it is assumed that the variable is a choice
                              type and if the only number you want to consider in your model optimization for that hyperparameters
