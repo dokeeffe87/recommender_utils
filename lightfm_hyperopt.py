@@ -113,7 +113,7 @@ def fit_model_early_stopping(interactions, hyperparams_dict, fit_params_dict, te
             # Output the batch findings so far
             file_name_trials = output_checkpoint_files(hyperparams_dict, fit_params_dict, i, trials, best)
             # Reload the trials object to restart the search where we left off
-            # TODO: Do I need to to do here, or can I just re-assign the variable?
+            # TODO: Do I need to do this here, or can I just re-assign the variable?
             trials = pickle.load(open(file_name_trials, "rb"))
 
             current_loss = trials.best_trial['result']['loss']
@@ -138,7 +138,7 @@ def fit_model_early_stopping(interactions, hyperparams_dict, fit_params_dict, te
             # Output the batch findings so far
             file_name_trials = output_checkpoint_files(hyperparams_dict, fit_params_dict, i, trials, best)
             # Reload the trials object to restart the search where we left off
-            # TODO: Do I need to to do here, or can I just re-assign the variable?
+            # TODO: Do I need to do this here, or can I just re-assign the variable?
             trials = pickle.load(open(file_name_trials, "rb"))
 
             current_loss = trials.best_trial['result']['loss']
