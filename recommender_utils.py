@@ -715,7 +715,6 @@ def make_cold_start_recommendation_on_new_user(model, dataset, new_user_features
     :param new_user_id: Optional id number of the new user.  This doesn't do anything other than get added to the final output if it is given to the function.
     :return: A dataframe with the rank order scores for the new user on all required items.
     """
-    # TODO: Make analogous functions to handle cold start items
     # TODO: Same for cold start users and items simultaneously.  The latter is made more difficult as we'll have to deal with the internal indices pointing to specific rows of the feature matrices
     # TODO: Add more checks for inputs to this function. There are a lot of potential failure modes.
 
@@ -727,17 +726,18 @@ def make_cold_start_recommendation_on_new_user(model, dataset, new_user_features
 
     item_preds_dict = {}
 
-    # convert the input dataframe of features for the new user into a sparse type
+    # convert the input DataFrame of features for the new user into a sparse type
     new_user_features_sparse = sparse.coo_matrix(new_user_features_df.values.tolist()[0])
 
     # Run a prediction on all available items for the new user
-    preds_array = model.predict(user_ids=[0], item_ids=internal_item_id_list, item_features=item_features, user_features=new_user_features_sparse)
+    preds_array = model.predict(user_ids=[0 for id_ in internal_item_id_list], item_ids=internal_item_id_list, item_features=item_features, user_features=new_user_features_sparse)
 
     for idx_, item_id in enumerate(internal_item_id_list):
-        item_preds_dict[item_id] = preds_array(idx_)
+        item_preds_dict[item_id] = preds_array[idx_]
 
     # Convert to DataFrame
-    item_preds_df = pd.DataFrame(item_preds_dict)
+    item_preds_df = pd.DataFrame.from_dict(item_preds_dict, orient='index')
+    item_preds_df.reset_index(inplace=True)
     item_preds_df.columns = ['item_id_internal', 'score']
 
     item_preds_df['item_id'] = item_preds_df['item_id_internal'].map(internal_id_to_item_dict)
@@ -755,5 +755,73 @@ def make_cold_start_recommendation_on_new_user(model, dataset, new_user_features
     # Re-order the index after sorting
     item_preds_df.reset_index(inplace=True, drop=True)
 
+    # Re-order the columns for returning
+    if new_user_id is not None:
+        item_preds_df = item_preds_df[['user_id', 'item_id', 'score']]
+    else:
+        item_preds_df = item_preds_df[['item_id', 'score']]
+
     return item_preds_df
+
+
+def make_cold_start_recommendation_on_new_item(model, dataset, new_item_features_df, user_ids_list, user_features=None, new_item_id=None):
+    """
+    A function to make cold start recommendations on existing users for a new item
+    :param model: The trained hybrid recommender model
+    :param dataset: The dataset object, used to get the mappings between user/item ids and their internal ids.
+    :param new_item_features_df: DataFrame with the item features to use.  It should be just one row with the new item features. The features must be the same as those already seen by the model
+    :param user_ids_list: A list of user ids you want to consider in the predictions. If you want to run the prediction on all user, pass a list of all user ids seen by the model. You shouldn't try
+                          to use this with cold start user.  Use the make_cold_start_recommendation_on_new_user function instead.
+    :param user_features: The original sparse matrix with the features of the existing users in the model.
+    :param new_item_id: Optional id number of the new item.  This doesn't do anything other than get added to the final output if it is given to the function.
+    :return: A dataframe with the rank order scores for the new item on all required users.
+    """
+    # TODO: Same for cold start users and items simultaneously.  The latter is made more difficult as we'll have to deal with the internal indices pointing to specific rows of the feature matrices
+    # TODO: Add more checks for inputs to this function. There are a lot of potential failure modes.
+
+    # Convert the list of item ids to the internal indices used by the model
+    internal_user_id_list = np.array([dataset.mapping()[0][id_] for id_ in user_ids_list])
+
+    # Invert the dictionaries for reverse translation
+    internal_id_to_user_dict = {val: key for key, val in dataset.mapping()[0].items()}
+
+    user_preds_dict = {}
+
+    # convert the input DataFrame of features for the new user into a sparse type
+    new_item_features_sparse = sparse.coo_matrix(new_item_features_df.values.tolist()[0])
+
+    # Run a prediction on all available items for the new user
+    preds_array = model.predict(user_ids=internal_user_id_list, item_ids=[0 for id_ in internal_user_id_list], user_features=user_features, item_features=new_item_features_sparse)
+
+    for idx_, user_id in enumerate(internal_user_id_list):
+        user_preds_dict[user_id] = preds_array[idx_]
+
+    # Convert to DataFrame
+    user_preds_df = pd.DataFrame.from_dict(user_preds_dict, orient='index')
+    user_preds_df.reset_index(inplace=True)
+    user_preds_df.columns = ['user_id_internal', 'score']
+
+    user_preds_df['user_id'] = user_preds_df['user_id_internal'].map(internal_id_to_user_dict)
+
+    # Drop the internal ids as we don't need them anymore
+    user_preds_df.drop(['user_id_internal'], axis=1, inplace=True)
+
+    # If there is a new item id to be used here (not in the existing dataset) add it to the dataframe
+    if new_item_id is not None:
+        user_preds_df['item_id'] = new_item_id
+
+    # Rank order the recommendations scores
+    user_preds_df.sort_values(by='score', ascending=False, inplace=True)
+
+    # Re-order the index after sorting
+    user_preds_df.reset_index(inplace=True, drop=True)
+
+    # Re-order the columns for returning
+    if new_item_id is not None:
+        user_preds_df = user_preds_df[['user_id', 'item_id', 'score']]
+    else:
+        user_preds_df = user_preds_df[['user_id', 'score']]
+
+    return user_preds_df
+
 
