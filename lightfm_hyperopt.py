@@ -49,7 +49,7 @@ possible_model_weights = {"user_embeddings",
                           "user_embedding_gradients"}
 
 
-def fit_model_early_stopping(interactions, hyperparams_dict, fit_params_dict, test_percentage=0.1, item_features=None, user_features=None, cv=None, random_search=False, hyper_opt_search=True, max_evals=10, early_stop_evals = 10, seed=0, eval_metric='auc_score', k=10, verbose=True):
+def fit_model_early_stopping(interactions, hyperparams_dict, fit_params_dict, test_percentage=0.1, item_features=None, user_features=None, cv=None, random_search=False, hyper_opt_search=True, max_evals=10, early_stop_evals=10, seed=0, eval_metric='auc_score', k=10, verbose=True):
     """
     Higher level function to actually run all the aspects of the hyperparameter search. This one works with early stopping; it will end the parameter search when no performance improvement has been
     detected after early_stop_evals threshold number of evaluations
@@ -173,6 +173,8 @@ def fit_model_batch(interactions, hyperparams_dict, fit_params_dict, batch_size,
     :param hyper_opt_search: True if you want to use tree parzen estimators algorithm for parameter search
     :param max_evals: The maximum number of evaluations to use for parameter search
     :param seed: The random seed to use in model building.  Doesn't apply to the train/test split, but should start the model training at the same place
+    :param eval_metric: The evaluation metric to use
+    :param k: The k parameter for the precision at k and recall at k metrics.  Only relevant if you are using one of these metrics for valuation
     :param verbose: Controls the verbosity of the model fit.  Default is True. This means the model will print out the epoch it's on as it's training
     :return: The best found parameters and the history trials object
     """
@@ -265,6 +267,8 @@ def fit_model(interactions, hyperparams_dict, fit_params_dict, test_percentage=0
     :param hyper_opt_search: True if you want to use tree parzen estimators algorithm for parameter search
     :param max_evals: The maximum number of evaluations to use for parameter search
     :param seed: The random seed to use in model building.  Doesn't apply to the train/test split, but should start the model training at the same place
+    :param eval_metric: The evaluation metric to use
+    :param k: The k parameter for the precision at k and recall at k metrics.  Only relevant if you are using one of these metrics for valuation
     :param verbose: Controls the verbosity of the model fit.  Default is True. This means the model will print out the epoch it's on as it's training
     :return: The best found parameters and the history trials object
     """

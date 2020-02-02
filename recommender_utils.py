@@ -170,7 +170,7 @@ def make_feature_lists(df, feature_list_cols):
     """
     # TODO: decide if we actually need this here.  Might be something that needs to be custom to the problem at hand
     # Might move this to another module as this is a bit custom to the problem
-    # Will need to handle numeric, categorial, and text data
+    # Will need to handle numeric, categorical, and text data
     pass
 
 
@@ -778,6 +778,7 @@ def make_cold_start_recommendation_on_new_item(model, dataset, new_item_features
     """
     # TODO: Same for cold start users and items simultaneously.  The latter is made more difficult as we'll have to deal with the internal indices pointing to specific rows of the feature matrices
     # TODO: Add more checks for inputs to this function. There are a lot of potential failure modes.
+    # TODO: Write wrapper to get cold start to run along with hot start.
 
     # Convert the list of item ids to the internal indices used by the model
     internal_user_id_list = np.array([dataset.mapping()[0][id_] for id_ in user_ids_list])
