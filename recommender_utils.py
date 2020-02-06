@@ -86,7 +86,7 @@ def prepare_interactions_dataframe(df, user_id_col, item_id_col, weight_col=None
     :return: LightFM dataset object, interactions matrix (scipy sparse coo matrix), matrix of weights (scipy sparse coo matrix) containing interaction weights
              (identity matrix if no interaction weights are desired)
     """
-    # TODO: Should I set the default for identity features as True? 
+    # TODO: Should I set the default for identity features as True?
     # Initialize the dataset. Identity features are off by default here
     dataset = Dataset(item_identity_features=item_identity_features, user_identity_features=user_identity_features)
 
