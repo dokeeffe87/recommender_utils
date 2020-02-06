@@ -79,12 +79,14 @@ def prepare_interactions_dataframe(df, user_id_col, item_id_col, weight_col=None
     :param item_id_col: Name of column containing the item ids
     :param weight_col: Name of column containing user-item weights. For example, the rating that a user gives to an item
     :param interaction_weights: Boolean indicating whether or not to use explicit users weights.  There are instances where this may not be desirable
-    :param item_identity_features: Boolean to indicate whether or not to append an identify matrix to the item features matrix on top of existing item features. True helps with cold start problems
-    :param user_identity_features: Boolean to indicate whether or not to append an identify matrix to the user features matrix on top of existing user features. True helps with cold start problems
+    :param item_identity_features: Boolean to indicate whether or not to append an identify matrix to the item features matrix on top of existing item features.
+                                   True lets you fall back on collaborative filtering
+    :param user_identity_features: Boolean to indicate whether or not to append an identify matrix to the user features matrix on top of existing user features.
+                                   True lets you fall back on collaborative filtering
     :return: LightFM dataset object, interactions matrix (scipy sparse coo matrix), matrix of weights (scipy sparse coo matrix) containing interaction weights
              (identity matrix if no interaction weights are desired)
     """
-
+    # TODO: Should I set the default for identity features as True? 
     # Initialize the dataset. Identity features are off by default here
     dataset = Dataset(item_identity_features=item_identity_features, user_identity_features=user_identity_features)
 
