@@ -12,7 +12,7 @@
 
 A custom wrapper around LightFM for optimization with random search and hyperopt.
 
-Version 0.0.1
+Version 0.1
 
 """
 
