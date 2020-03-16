@@ -21,6 +21,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 import seaborn as sns
+import dataiku
 
 from itertools import chain
 
@@ -609,6 +610,28 @@ def save_data_objects(filename, dataset=None, matrix=None):
         sparse.save_npz(filename, matrix)
 
 
+def save_data_objects_dataiku(folder, filename, dataset=None, matrix=None):
+    """
+    Function to save data objects for the model within a dataiku environment
+    :param folder: The dataiku folder object
+    :param filename: Directory and name of the file you want to save data as. Dataset objects should be .pickle files. Matrix objects should be .npz files
+    :param dataset: Dataset object used by LightFM. Should be saved as a .pickle file
+    :param matrix: A scipy sparse matrix containing data.  Should be a .npz file
+    :return: Nothing. Saves the input file at the specified directory + file name
+    """
+    # TODO: Add support for multiple saves at once.
+    if dataset is not None:
+        handle = dataiku.Folder(folder)
+        with handle.get_writer(filename) as w:
+            pickle.dump(dataset, w, protocol=pickle.HIGHEST_PROTOCOL)
+    if matrix is not None:
+        #sparse.save_npz(filename, matrix)
+        handle = dataiku.Folder(folder)
+        with handle.get_writer(filename) as w:
+            # Why is the sparse matrix save commented out? I see that the load function has been changed to take inputs from a pickle. Is there a reason for this?
+            pickle.dump(matrix, w, protocol=pickle.HIGHEST_PROTOCOL)
+
+
 def load_data_objects(filename, is_dataset=False, is_matrix=False):
     """
     Function to load both LightFM dataset objects and data matrices
@@ -625,6 +648,34 @@ def load_data_objects(filename, is_dataset=False, is_matrix=False):
 
     if is_matrix:
         matrix = sparse.load_npz(filename)
+
+        return matrix
+
+
+def load_data_objects_dataiku(folder, filename, is_dataset=False, is_matrix=False):
+    """
+    Function to load both LightFM dataset objects and data matrices in a dataiku environment
+    :param folder: The dataiku folder object
+    :param filename: Path and name of the file you want to load
+    :param is_dataset: Set True if the file is a dataset object
+    :param is_matrix: Set true if the file is a data matrix
+    :return: Either LightFM dataset object or a scipy sparse matrix
+    """
+    # TODO: Add support for multiple loads at once
+    if is_dataset:
+        #dataset = pickle.load(open(filename, 'rb', -1))
+        handle = dataiku.Folder(folder)
+        path=handle.get_path()
+        dataset = pickle.load(open(path+"/"+filename, 'rb', -1))
+
+        return dataset
+
+    if is_matrix:
+        # Again, why is this commented out in favour of pickle?
+        #matrix = sparse.load_npz(filename)
+        handle = dataiku.Folder(folder)
+        path=handle.get_path()
+        matrix = pickle.load(open(path+"/"+filename, 'rb', -1))
 
         return matrix
 

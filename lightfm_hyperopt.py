@@ -25,6 +25,7 @@ import pandas as pd
 import numpy as np
 import json
 import pickle
+import dataiku
 
 from lightfm import LightFM
 from lightfm.cross_validation import random_train_test_split
@@ -53,6 +54,111 @@ def fit_model_early_stopping(interactions, hyperparams_dict, fit_params_dict, te
     """
     Higher level function to actually run all the aspects of the hyperparameter search. This one works with early stopping; it will end the parameter search when no performance improvement has been
     detected after early_stop_evals threshold number of evaluations
+    :param interactions: The full training set (sparse matrix) of user/item interactions
+    :param hyperparams_dict: The dictionary of model hyperparameters.  The keys should be the hyperparameter name and the values a list with the first element the HyperOpt variable type and the second
+                             element should be a list of possible values to consider for the hyperparameter.  If only a key and number value are provided, it is assumed that the variable is a choice
+                             type and if the only number you want to consider in your model optimization for that hyperparameters
+    :param fit_params_dict: The dictionary of fit parameters.  The keys should be the parameter name and the values a list with the first element the HyperOpt variable type and the second
+                             element should be a list of possible values to consider for the parameter.  If only a key and number value are provided, it is assumed that the variable is a choice
+                             type and if the only number you want to consider in your model optimization for that parameters
+    :param test_percentage: The percentage of the training set you want to use for validation
+    :param item_features: The sparse matrix of features for the items
+    :param user_features: The sparse matrix of features for the users
+    :param cv: The number of cross validation folds to use.  Should be an interger number of folds or None if you don't want to run with cross validation
+    :param random_search: True if you want to use randomized search over the parameters
+    :param hyper_opt_search: True if you want to use tree parzen estimators algorithm for parameter search
+    :param max_evals: The maximum number of evaluations to use for parameter search
+    :param early_stop_evals: The number of evaluations that need to go by with no improvement to trigger the early stopping condition
+    :param seed: The random seed to use in model building.  Doesn't apply to the train/test split, but should start the model training at the same place
+    :param verbose: Controls the verbosity of the model fit.  Default is True. This means the model will print out the epoch it's on as it's training
+    :return: The best found parameters and the history trials object
+    """
+    # TODO: I don't think it makes a lot of sense to have yet another function to do this.  Merge this with the batch fitting function.
+    if random_search:
+        if not hyper_opt_search:
+            print('Running randomized hyperparameter search')
+        else:
+            print('Please select either random search or hyperopt search')
+            return None
+
+    if hyper_opt_search:
+        if not random_search:
+            print('Running hyperopt hyperparameter search')
+        else:
+            print('Please select either random search or hyperopt search')
+            return None
+
+    params = prep_params_for_hyperopt(hyperparams_dict=hyperparams_dict,
+                                      fit_params_dict=fit_params_dict,
+                                      interactions=interactions,
+                                      test_percentage=test_percentage,
+                                      item_features=item_features,
+                                      user_features=user_features,
+                                      cv=cv,
+                                      eval_metric=eval_metric,
+                                      k=k,
+                                      verbose=verbose)
+    trials = Trials()
+
+    if cv is not None:
+        print('Running in cross validation mode for {0} folds'.format(cv))
+    else:
+        print('Not running in cross validation mode. Will default to single train test split')
+
+    if random_search:
+        # Run for early stopping
+        print('Running for {0} evaluations with early stopping checks every {1} evaluations'.format(max_evals, early_stop_evals))
+        best_loss_so_far = 0
+        for i in range(early_stop_evals, max_evals + 1, early_stop_evals):
+            best = fmin(f_objective, params, algo=tpe.rand.suggest, max_evals=i, trials=trials, rstate=np.random.RandomState(seed))
+            # Output the batch findings so far
+            file_name_trials = output_checkpoint_files(hyperparams_dict, fit_params_dict, i, trials, best)
+            # Reload the trials object to restart the search where we left off
+            # TODO: Do I need to do this here, or can I just re-assign the variable?
+            trials = pickle.load(open(file_name_trials, "rb"))
+
+            current_loss = trials.best_trial['result']['loss']
+
+            if current_loss < best_loss_so_far:
+                best_loss_so_far = current_loss
+                print('Loss has improved. Continuing with search')
+            else:
+                print('No loss improvement after {0} evaluations. This has triggered the early stopping criterion.'.format(early_stop_evals))
+                return best, trials
+
+        return best, trials
+
+    if hyper_opt_search:
+        # Run for early stopping
+        print('Running for {0} evaluations with early stopping checks every {1} evaluations'.format(max_evals, early_stop_evals))
+        best_loss_so_far = 0
+        for i in range(early_stop_evals, max_evals + 1, early_stop_evals):
+
+            best = fmin(f_objective, params, algo=tpe.suggest, max_evals=i, trials=trials, rstate=np.random.RandomState(seed))
+
+            # Output the batch findings so far
+            file_name_trials = output_checkpoint_files(hyperparams_dict, fit_params_dict, i, trials, best)
+            # Reload the trials object to restart the search where we left off
+            # TODO: Do I need to do this here, or can I just re-assign the variable?
+            trials = pickle.load(open(file_name_trials, "rb"))
+
+            current_loss = trials.best_trial['result']['loss']
+
+            if current_loss < best_loss_so_far:
+                best_loss_so_far = current_loss
+                print('Loss has improved. Continuing with search')
+            else:
+                print('No loss improvement after {0} evaluations. This has triggered the early stopping criterion.'.format(early_stop_evals))
+                return best, trials
+
+        return best, trials
+
+
+def fit_model_early_stopping_dataiku(folder, interactions, hyperparams_dict, fit_params_dict, test_percentage=0.1, item_features=None, user_features=None, cv=None, random_search=False, hyper_opt_search=True, max_evals=10, early_stop_evals=10, seed=0, eval_metric='auc_score', k=10, verbose=True):
+    """
+    Higher level function to actually run all the aspects of the hyperparameter search. This one works with early stopping; it will end the parameter search when no performance improvement has been
+    detected after early_stop_evals threshold number of evaluations. Should work in a dataiku environment
+    :param folder: The dataiku folder object
     :param interactions: The full training set (sparse matrix) of user/item interactions
     :param hyperparams_dict: The dictionary of model hyperparameters.  The keys should be the hyperparameter name and the values a list with the first element the HyperOpt variable type and the second
                              element should be a list of possible values to consider for the hyperparameter.  If only a key and number value are provided, it is assumed that the variable is a choice
@@ -217,11 +323,15 @@ def fit_model_batch(interactions, hyperparams_dict, fit_params_dict, batch_size,
             best = fmin(f_objective, params, algo=tpe.rand.suggest, max_evals=i, trials=trials, rstate=np.random.RandomState(seed))
 
             # Output the batch findings so far
-            file_name_trials = output_checkpoint_files(hyperparams_dict, fit_params_dict, i, trials, best)
+            file_name_trials = output_checkpoint_files_dataiku(folder, hyperparams_dict, fit_params_dict, i, trials, best)
+
+            # Setup the dataiku handle object
+            handle = dataiku.Folder(folder)
+            path = handle.get_path()
 
             # Reload the trials object to restart the search where we left off
             # TODO: Do I need to to do here, or can I just re-assign the variable?
-            trials = pickle.load(open(file_name_trials, "rb"))
+            trials = pickle.load(open(path + "/" + file_name_trials, "rb", -1))
 
             batch_number = int(max_evals * (i / max_evals) / batch_size)
             print('completed batch: {0}'.format(batch_number))
@@ -237,10 +347,122 @@ def fit_model_batch(interactions, hyperparams_dict, fit_params_dict, batch_size,
             best = fmin(f_objective, params, algo=tpe.suggest, max_evals=i, trials=trials, rstate=np.random.RandomState(seed))
 
             # Output the batch findings so far
-            file_name_trials = output_checkpoint_files(hyperparams_dict, fit_params_dict, i, trials, best)
+            file_name_trials = output_checkpoint_files_dataiku(folder, hyperparams_dict, fit_params_dict, i, trials, best)
+
+            # Setup the dataiku handle object
+            handle = dataiku.Folder(folder)
+            path = handle.get_path()
+
             # Reload the trials object to restart the search where we left off
             # TODO: Do I need to to do here, or can I just re-assign the variable?
-            trials = pickle.load(open(file_name_trials, "rb"))
+            trials = pickle.load(open(path + "/" + file_name_trials, "rb", -1))
+
+            batch_number = int(max_evals * (i / max_evals) / batch_size)
+            print('completed batch: {0}'.format(batch_number))
+            print('completed evaluations: {0} to {1}'.format(i - batch_size, i))
+
+        return best, trials
+
+
+def fit_model_batch_dataiku(folder, interactions, hyperparams_dict, fit_params_dict, batch_size, test_percentage=0.1, item_features=None, user_features=None, cv=None, random_search=False, hyper_opt_search=True, max_evals=10, seed=0, eval_metric='auc_score', k=10, verbose=True):
+    """
+    Higher level function to actually run all the aspects of the hyperparameter search. This version works with batches. The hyperparameter search will occur as per usual, but the results will be
+    logged every batch_size number of evaluations and restarted from there. Should work in a dataiku environment.
+    :param folder: The dataiku folder object
+    :param interactions: The full training set (sparse matrix) of user/item interactions
+    :param hyperparams_dict: The dictionary of model hyperparameters.  The keys should be the hyperparameter name and the values a list with the first element the HyperOpt variable type and the second
+                             element should be a list of possible values to consider for the hyperparameter.  If only a key and number value are provided, it is assumed that the variable is a choice
+                             type and if the only number you want to consider in your model optimization for that hyperparameters
+    :param fit_params_dict: The dictionary of fit parameters.  The keys should be the parameter name and the values a list with the first element the HyperOpt variable type and the second
+                             element should be a list of possible values to consider for the parameter.  If only a key and number value are provided, it is assumed that the variable is a choice
+                             type and if the only number you want to consider in your model optimization for that parameters
+    :param batch_size: Number of evaluations to run before dumping current best results to file
+    :param test_percentage: The percentage of the training set you want to use for validation
+    :param item_features: The sparse matrix of features for the items
+    :param user_features: The sparse matrix of features for the users
+    :param cv: The number of cross validation folds to use.  Should be an integer number of folds or None if you don't want to run with cross validation
+    :param random_search: True if you want to use randomized search over the parameters
+    :param hyper_opt_search: True if you want to use tree parzen estimators algorithm for parameter search
+    :param max_evals: The maximum number of evaluations to use for parameter search
+    :param seed: The random seed to use in model building.  Doesn't apply to the train/test split, but should start the model training at the same place
+    :param eval_metric: The evaluation metric to use
+    :param k: The k parameter for the precision at k and recall at k metrics.  Only relevant if you are using one of these metrics for valuation
+    :param verbose: Controls the verbosity of the model fit.  Default is True. This means the model will print out the epoch it's on as it's training
+    :return: The best found parameters and the history trials object
+    """
+
+    if random_search:
+        if not hyper_opt_search:
+            print('Running randomized hyperparameter search')
+        else:
+            print('Please select either random search or hyperopt search')
+            return None
+
+    if hyper_opt_search:
+        if not random_search:
+            print('Running hyperopt hyperparameter search')
+        else:
+            print('Please select either random search or hyperopt search')
+            return None
+
+    params = prep_params_for_hyperopt(hyperparams_dict=hyperparams_dict,
+                                      fit_params_dict=fit_params_dict,
+                                      interactions=interactions,
+                                      test_percentage=test_percentage,
+                                      item_features=item_features,
+                                      user_features=user_features,
+                                      cv=cv,
+                                      eval_metric=eval_metric,
+                                      k=k,
+                                      verbose=verbose)
+    trials = Trials()
+
+    if cv is not None:
+        print('Running in cross validation mode for {0} folds'.format(cv))
+    else:
+        print('Not running in cross validation mode. Will default to single train test split')
+
+    if random_search:
+        # Iterate over the maximum evaluations by batch size
+        print('Running for {0} evaluations in batches of {1} for a total of {2} batches'.format(max_evals, batch_size, max_evals // batch_size))
+        for i in range(batch_size, max_evals + 1, batch_size):
+
+            best = fmin(f_objective, params, algo=tpe.rand.suggest, max_evals=i, trials=trials, rstate=np.random.RandomState(seed))
+
+            # Output the batch findings so far
+            file_name_trials = output_checkpoint_files_dataiku(folder, hyperparams_dict, fit_params_dict, i, trials, best)
+
+            # Setup the dataiku handle object
+            handle = dataiku.Folder(folder)
+            path = handle.get_path()
+
+            # Reload the trials object to restart the search where we left off
+            # TODO: Do I need to to do here, or can I just re-assign the variable?
+            trials = pickle.load(open(path + "/" + file_name_trials, "rb", -1))
+
+            batch_number = int(max_evals * (i / max_evals) / batch_size)
+            print('completed batch: {0}'.format(batch_number))
+            print('completed evaluations: {0} to {1}'.format(i - batch_size, i))
+
+        return best, trials
+
+    if hyper_opt_search:
+        # Iterate over the maximum evaluations by batch size
+        print('Running for {0} evaluations in batches of {1} for a total of {2} batches'.format(max_evals, batch_size, max_evals // batch_size))
+        for i in range(batch_size, max_evals + 1, batch_size):
+
+            best = fmin(f_objective, params, algo=tpe.suggest, max_evals=i, trials=trials, rstate=np.random.RandomState(seed))
+
+            # Output the batch findings so far
+            file_name_trials = output_checkpoint_files_dataiku(folder, hyperparams_dict, fit_params_dict, i, trials, best)
+
+            # Setup the dataiku handle object
+            handle = dataiku.Folder(folder)
+            path = handle.get_path()
+
+            # Reload the trials object to restart the search where we left off
+            # TODO: Do I need to to do here, or can I just re-assign the variable?
+            trials = pickle.load(open(path + "/" + file_name_trials, "rb", -1))
 
             batch_number = int(max_evals * (i / max_evals) / batch_size)
             print('completed batch: {0}'.format(batch_number))
@@ -440,6 +662,39 @@ def get_best_hyperparams(hyperparams_dict, fit_params_dict, best, file_name=None
     return best_params
 
 
+def get_best_hyperparams_dataiku(folder, hyperparams_dict, fit_params_dict, best, file_name=None):
+    """
+    Helper function to extract the numerical values of best hyperparameters from hyperopt into a more easily usable format within a dataiku environment
+    :param folder: The dataiku folder object
+    :param hyperparams_dict: Dictionary of hyperparameter values
+    :param fit_params_dict: Dictionary of fit parameter values
+    :param best: The best hyperparameters as returned by hyperopt
+    :param file_name: Directory plus name of the file you want to save the best parameters to.  File name must end in .json as this is the expected output format
+    :return: Parameter dictionary. Contains both model hyperparameters and epochs parameter for model fit.
+    """
+    # Extract hyperparameters for the model
+    best_params = {}
+    for key, val in best.items():
+        if key in hyperparams_dict:
+            input_ = hyperparams_dict[key]
+            if input_[0] == 'choice':
+                best_params[key] = input_[1][val]
+            else:
+                best_params[key] = val
+
+    # The only other parameter I need to get out is the number of epochs to train for.
+    # I'll put it all into the best_params dictionary, but I'll need to pop it out before defining the model
+    best_params['num_epochs'] = fit_params_dict['num_epochs'][1][best['num_epochs']]
+
+    if file_name is not None:
+        json_out = json.dumps(best_params)
+        handle = dataiku.Folder(folder)
+        with handle.get_writer(file_name) as w:
+            w.write(json_out.encode())
+
+    return best_params
+
+
 def load_best_params(file_name):
     """
     Function to load previously saved best parameters
@@ -447,6 +702,21 @@ def load_best_params(file_name):
     :return: Dictionary with parameters contained in the input json file
     """
     with open(file_name, 'r') as f:
+        best_params = json.load(f)
+
+    return best_params
+
+
+def load_best_params_dataiku(folder, file_name):
+    """
+    Function to load previously saved best parameters in a dataiku environment
+    :param folder: The dataiku folder object
+    :param file_name: Directory and name of the json file to load
+    :return: Dictionary with parameters contained in the input json file
+    """
+    handle = dataiku.Folder(folder)
+    path = handle.get_path()
+    with open(path + '/' + file_name, 'r') as f:
         best_params = json.load(f)
 
     return best_params
@@ -672,7 +942,7 @@ def save_model(model, filename):
     Function to save model
     :param model: The trained model to save
     :param filename: The directory and name of the file you want to use. The format is .npz
-    :return:
+    :return: Nothing, just saves the model object
     """
     model_params = {value: getattr(model, value) for value in possible_model_weights}
     hyperparams = model.get_params()
@@ -686,6 +956,32 @@ def save_model(model, filename):
         print('Something went wrong. Model not saved.')
 
 
+def save_model_dataiku(folder, model, filename):
+    """
+    Function to save model in a dataiku environment
+    :param folder: The dataiku folder object
+    :param model: The trained model to save
+    :param filename: The directory and name of the file you want to use. The format is .npz
+    :return: Nothing, just saves the model object
+    """
+    model_params = {value: getattr(model, value) for value in possible_model_weights}
+    hyperparams = model.get_params()
+    model_params.update(hyperparams)
+
+    # np.savez_compressed(filename, **model_params)
+
+    # if os.path.isfile(filename):
+    #      print('Model saved')
+    #  else:
+    #      print('Something went wrong. Model not saved.')
+
+    if filename is not None:
+        handle = dataiku.Folder(folder)
+        with handle.get_writer(filename) as w:
+            # TODO: Again, is there a reason to prefer pickle over numpy sparse matrix saving? I worry about reloading this object.
+            pickle.dump(model_params, w, protocol=pickle.HIGHEST_PROTOCOL)
+
+
 def load_model(filename):
     """
     Function to load saved model
@@ -695,6 +991,28 @@ def load_model(filename):
     model = LightFM()
 
     numpy_model = np.load(filename, allow_pickle=True)
+    for value in [x for x in numpy_model if x in possible_model_weights]:
+        setattr(model, value, numpy_model[value])
+
+    model.set_params(**{k: v for k, v in numpy_model.items() if k not in possible_model_weights})
+
+    return model
+
+
+def load_model_dataiku(folder, filename):
+    """
+    Function to load saved model in a dataiku environment
+    :param folder: The dataiku folder object
+    :param filename: The directory and name of the .npz file with the saved model
+    :return: The saved model object
+    """
+    model = LightFM()
+
+    handle = dataiku.Folder(folder)
+    path = handle.get_path()
+
+    # TODO: Will this work when saving as a pickle and not using the numpy savez_compressed?
+    numpy_model = np.load(path + "/" + filename, allow_pickle=True)
     for value in [x for x in numpy_model if x in possible_model_weights]:
         setattr(model, value, numpy_model[value])
 
@@ -735,3 +1053,45 @@ def output_checkpoint_files(hyperparams_dict, fit_params_dict, batch_number, tri
     get_best_hyperparams(hyperparams_dict, fit_params_dict, best, file_name=file_name_best_params_formatted)
 
     return file_name_trials
+
+
+def output_checkpoint_files_dataiku(folder, hyperparams_dict, fit_params_dict, batch_number, trials, best):
+    """
+    Function to output the trials history and best found hyperparameters so far during the search phase.  Works with the batch search in fit_model_batch. Works in dataiku environment
+    :param folder: The dataiku folder object
+    :param hyperparams_dict: Dictionary of hyperparameter values
+    :param fit_params_dict: Dictionary of fit parameter values
+    :param batch_number: The max_evals in this batch.  This is the i index in fit_model_batch.
+    :param trials: Trials object from hyperopt fmin
+    :param best: The best found parameters dictionary output by hyperopt fmin
+    :return: Nothing. Just saves the files with the current time and batch number
+    """
+    # Get the current time to index the output files.
+    # We output the current trials object to restart the search at the appropriate place and the current best parameters found.
+    current_time = strftime("%Y-%m-%d_%H%M%S", gmtime())
+    file_name_trials = "dump_trials_at_eval_{0}_{1}.p".format(batch_number, current_time)
+    file_name_best_raw = "dump_best_params_raw_output_at_eval_{0}_{1}.p".format(batch_number, current_time)
+    file_name_best_params_formatted = "dump_best_params_at_eval_{0}_{1}.p".format(batch_number, current_time)
+
+    # Setup the needed dataiku handle
+    handle = dataiku.Folder(folder)
+
+    # Output the trials object.  You need this to restart the search at the end of this batch if you want to.
+    with handle.get_writer(file_name_trials) as w:
+        pickle.dump(trials, open(w, "wb"), protocol=pickle.HIGHEST_PROTOCOL)
+
+    # Reload the trials object to restart the search.
+    # TODO: Do I need to to do here, or can I just re-assign the variable?
+    # trials = pickle.load(open(file_name_trials, "rb"))
+
+    # Dump the best seen parameters so far.
+    # TODO: format this appropriately
+    with handle.get_writer(file_name_trials) as w:
+        pickle.dump(best, open(w, "wb"), protocol=pickle.HIGHEST_PROTOCOL)
+
+    # Get the formatted hyperparameters and fit parameters found so far
+    get_best_hyperparams_dataiku(folder, hyperparams_dict, fit_params_dict, best, file_name=file_name_best_params_formatted)
+
+    return file_name_trials
+
+
