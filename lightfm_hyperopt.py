@@ -12,7 +12,7 @@
 
 A custom wrapper around LightFM for optimization with random search and hyperopt.
 
-Version 0.1
+Version 0.2.0
 
 """
 # TODO: Test the nested cross validation function.  What's currently being done is hyperparameter estimation and then cross validation on the tune model.
