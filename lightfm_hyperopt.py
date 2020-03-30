@@ -12,10 +12,11 @@
 
 A custom wrapper around LightFM for optimization with random search and hyperopt.
 
-Version 0.1
+Version 0.2.0
 
 """
-
+# TODO: Test the nested cross validation function.  What's currently being done is hyperparameter estimation and then cross validation on the tune model.
+# This is ok, but might lead to over-optimistic error estimates.
 
 # Import modules
 
@@ -50,10 +51,351 @@ possible_model_weights = {"user_embeddings",
                           "user_embedding_gradients"}
 
 
+def nested_cv_dataiku(folder, interactions, hyperparams_dict, fit_params_dict, outer_valid_percentage=0.1, inner_valid_percentage=0.1, item_features=None, user_features=None, outer_cv=3, inner_cv=3, inner_seed=0, outer_seed=10, early_stop_evals=None, batch_size=None, max_evals=10, eval_metric='auc_score', k=10, random_search=False, hyper_opt_search=True, verbose=True):
+    """
+    Runs nested cross validation on the entire modeling process.  Recall that nested cross validation is not intended to select the optimal model/parameters, but rather provide a better estimate of
+    performance due to the overall modeling process itself, of which the fitting of hyperparameters if part of. Should work in a dataiku environment
+    :param folder: The dataiku folder object
+    :param interactions: The full training set (sparse matrix) of user/item interactions
+    :param hyperparams_dict: The dictionary of model hyperparameters.  The keys should be the hyperparameter name and the values a list with the first element the HyperOpt variable type and the second
+                             element should be a list of possible values to consider for the hyperparameter.  If only a key and number value are provided, it is assumed that the variable is a choice
+                             type and if the only number you want to consider in your model optimization for that hyperparameters
+    :param fit_params_dict: The dictionary of fit parameters.  The keys should be the parameter name and the values a list with the first element the HyperOpt variable type and the second
+                             element should be a list of possible values to consider for the parameter.  If only a key and number value are provided, it is assumed that the variable is a choice
+                             type and if the only number you want to consider in your model optimization for that parameters
+    :param outer_valid_percentage: The percentage of the training set you want to use for the outer loop validation
+    :param inner_valid_percentage: The percentage of the outer loop training set you want to use for the inner loop validation
+    :param item_features: The sparse matrix of features for the items
+    :param user_features: The sparse matrix of features for the users
+    :param outer_cv: The number of cross validations folds to use in the outer loop.  Should be an integer
+    :param inner_cv: The number of cross validations folds to use in the inner loop.  Should be an integer
+    :param random_search: True if you want to use randomized search over the parameters
+    :param hyper_opt_search: True if you want to use tree parzen estimators algorithm for parameter search
+    :param max_evals: The maximum number of evaluations to use for parameter search
+    :param early_stop_evals: The number of evaluations that need to go by with no improvement to trigger the early stopping condition
+    :param inner_seed: The random seed to use in the inner cross validation loop.  Doesn't apply to the train/test split, but should start the model training at the same place
+    :param outer_seed: The random seed to use in the outer cross validation loop.  Doesn't apply to the train/test split, but should start the model training at the same place
+    :param batch_size: Number of evaluations to run before dumping current best results to file
+    :param eval_metric: The evaluation metric you want to use
+    :param k: The k parameter for the precision at k and recall at k metrics.  Only relevant if you are using one of these metrics for valuation
+    :param verbose: Controls the verbosity of the model fit.  Default is True. This means the model will print out the epoch it's on as it's training
+    :return: The outer cross validation scores as a list, the list of best parameters as found by the inner cross validation loop for each outer loop iteration, a dictionary containing the results of
+             each evaluation (averaged over the folds) of the inner cross validation loop indexed by the outer loop fold number
+    """
+    if outer_valid_percentage is None:
+        raise ValueError('Please provide an outer_valid_percentage to split the input training data in the outer cross validation loop')
+
+    if inner_valid_percentage is None:
+        raise ValueError('Please provide an inner_valid_percentage to split the input training data in the inner cross validation loop')
+
+    if inner_seed is None:
+        print('The random seed is not set for the inner cross validation loop.  This will lead to potentially non-reproducible results.')
+    else:
+        assert type(inner_seed) == int, "inner_seed must be an integer"
+
+    if outer_seed is not None:
+        assert type(outer_seed) == int, "outer_seed must be an integer"
+        outer_seed_np = np.random.RandomState(outer_seed)
+    else:
+        print('The random seed is not set for the outer cross validation loop.  This will lead to potentially non-reproducible results.')
+        outer_seed_np = np.random.RandomState(outer_seed)
+
+    try:
+        num_threads = fit_params_dict['num_threads']
+    except KeyError:
+        num_threads = 1
+
+    print('Evaluation model with {0} outer cross-validation folds and {1} inner cross-validation folds.'.format(outer_cv, inner_cv))
+    print('Remember, nested cross-validation does not select the hyperparameters for the model. It estimates performance of the entire modeling processes.')
+
+    if early_stop_evals is not None:
+        if batch_size is not None:
+            raise AttributeError('Cannot use both early stopping and batch fitting simultaneously. Please use one or the other.')
+
+    if hyper_opt_search:
+        if random_search:
+            raise AttributeError('Cannot run random search and hyperopt search simultaneously. Please select one of the other.')
+
+    outer_score_list = []
+    param_list = []
+    inner_fold_results = {}
+    # outer cv loop
+    for outer_fold in range(outer_cv):
+        train_, outer_valid_ = random_train_test_split(interactions=interactions, test_percentage=outer_valid_percentage)
+
+        # Now run the hyperparameter search here.  This should return the best found hyperparameters based on inner cv score.
+        if early_stop_evals is not None:
+            best, trials = fit_model_early_stopping_dataiku(folder=folder,
+                                                            interactions=train_,
+                                                            hyperparams_dict=hyperparams_dict,
+                                                            fit_params_dict=fit_params_dict,
+                                                            test_percentage=inner_valid_percentage,
+                                                            item_features=item_features,
+                                                            user_features=user_features,
+                                                            cv=inner_cv,
+                                                            max_evals=max_evals,
+                                                            eval_metric=eval_metric,
+                                                            verbose=verbose,
+                                                            seed=inner_seed,
+                                                            k=k,
+                                                            random_search=random_search,
+                                                            hyper_opt_search=hyper_opt_search,
+                                                            early_stop_evals=early_stop_evals)
+        elif batch_size is not None:
+            best, trials = fit_model_batch_dataiku(folder=folder,
+                                                   interactions=train_,
+                                                   hyperparams_dict=hyperparams_dict,
+                                                   fit_params_dict=fit_params_dict,
+                                                   test_percentage=inner_valid_percentage,
+                                                   item_features=item_features,
+                                                   user_features=user_features,
+                                                   cv=inner_cv,
+                                                   max_evals=max_evals,
+                                                   eval_metric=eval_metric,
+                                                   verbose=verbose,
+                                                   seed=inner_seed,
+                                                   k=k,
+                                                   random_search=random_search,
+                                                   hyper_opt_search=hyper_opt_search,
+                                                   batch_size=batch_size)
+        else:
+            best, trials = fit_model(interactions=train_,
+                                     hyperparams_dict=hyperparams_dict,
+                                     fit_params_dict=fit_params_dict,
+                                     test_percentage=inner_valid_percentage,
+                                     item_features=item_features,
+                                     user_features=user_features,
+                                     cv=inner_cv,
+                                     max_evals=max_evals,
+                                     eval_metric=eval_metric,
+                                     verbose=verbose,
+                                     seed=inner_seed,
+                                     k=k,
+                                     random_search=random_search,
+                                     hyper_opt_search=hyper_opt_search)
+
+        # Store the results of the trials object for this inner cv loop.
+        # This will store the results for each fold in the most recent inner fold to a dictionary indexed by the current outer fold number
+        inner_fold_results[outer_fold] = trials.trials
+
+        # Get out the best hyperparameters. Should I support saving the parameters here? Doesn't seem like much point.
+        inner_params = get_best_hyperparams(hyperparams_dict=hyperparams_dict,
+                                            fit_params_dict=fit_params_dict,
+                                            best=best)
+
+        # Add the random seed to the inner_params dictionary. We need this if the user wants to specify the seed in the outer cross validation fit as well.
+        inner_params['random_state'] = outer_seed_np
+
+        # param_list.append(inner_params)
+        num_epochs = inner_params.pop('num_epochs')
+
+        # Train model on train_ with the returned hyperparameters and test on outer_valid_
+        score = fit_eval(params=inner_params,
+                         eval_metric=eval_metric,
+                         train_interactions=train_,
+                         valid_interactions=outer_valid_,
+                         num_epochs=num_epochs,
+                         num_threads=num_threads,
+                         item_features=item_features,
+                         user_features=user_features,
+                         k=k,
+                         verbose=verbose)
+
+        # Add the number of epochs back to the parameter dictionary before storing it. We might want to look at this later
+        inner_params['num_epochs'] = num_epochs
+
+        # Add the seed used in the inner loop in case someone wants to set separate inner and out seeds just to see what happens
+        inner_params['inner_cv_seed'] = inner_seed
+
+        # Rename in the outer cv seed to something more interpretable in the output. Remove the numpy random state and just output the initially input integer
+        inner_params.pop('random_state')
+        inner_params['outer_cv_seed'] = outer_seed
+
+        param_list.append(inner_params)
+
+        outer_score_list.append(score)
+
+        print('Completed outer fold: {0}'.format(outer_fold + 1))
+        print('Outer fold: {0}  loss: {1}'.format(outer_fold + 1, score))
+
+    print('Nested cross-validation complete')
+
+    return outer_score_list, param_list, inner_fold_results
+
+
+def nested_cv(interactions, hyperparams_dict, fit_params_dict, outer_valid_percentage=0.1, inner_valid_percentage=0.1, item_features=None, user_features=None, outer_cv=3, inner_cv=3, inner_seed=0, outer_seed=10, early_stop_evals=None, batch_size=None, max_evals=10, eval_metric='auc_score', k=10, random_search=False, hyper_opt_search=True, verbose=True):
+    """
+    Runs nested cross validation on the entire modeling process.  Recall that nested cross validation is not intended to select the optimal model/parameters, but rather provide a better estimate of
+    performance due to the overall modeling process itself, of which the fitting of hyperparameters if part of.
+    :param interactions: The full training set (sparse matrix) of user/item interactions
+    :param hyperparams_dict: The dictionary of model hyperparameters.  The keys should be the hyperparameter name and the values a list with the first element the HyperOpt variable type and the second
+                             element should be a list of possible values to consider for the hyperparameter.  If only a key and number value are provided, it is assumed that the variable is a choice
+                             type and if the only number you want to consider in your model optimization for that hyperparameters
+    :param fit_params_dict: The dictionary of fit parameters.  The keys should be the parameter name and the values a list with the first element the HyperOpt variable type and the second
+                             element should be a list of possible values to consider for the parameter.  If only a key and number value are provided, it is assumed that the variable is a choice
+                             type and if the only number you want to consider in your model optimization for that parameters
+    :param outer_valid_percentage: The percentage of the training set you want to use for the outer loop validation
+    :param inner_valid_percentage: The percentage of the outer loop training set you want to use for the inner loop validation
+    :param item_features: The sparse matrix of features for the items
+    :param user_features: The sparse matrix of features for the users
+    :param outer_cv: The number of cross validations folds to use in the outer loop.  Should be an integer
+    :param inner_cv: The number of cross validations folds to use in the inner loop.  Should be an integer
+    :param random_search: True if you want to use randomized search over the parameters
+    :param hyper_opt_search: True if you want to use tree parzen estimators algorithm for parameter search
+    :param max_evals: The maximum number of evaluations to use for parameter search
+    :param early_stop_evals: The number of evaluations that need to go by with no improvement to trigger the early stopping condition
+    :param inner_seed: The random seed to use in the inner cross validation loop.  Doesn't apply to the train/test split, but should start the model training at the same place
+    :param outer_seed: The random seed to use in the outer cross validation loop.  Doesn't apply to the train/test split, but should start the model training at the same place
+    :param batch_size: Number of evaluations to run before dumping current best results to file
+    :param eval_metric: The evaluation metric you want to use
+    :param k: The k parameter for the precision at k and recall at k metrics.  Only relevant if you are using one of these metrics for valuation
+    :param verbose: Controls the verbosity of the model fit.  Default is True. This means the model will print out the epoch it's on as it's training
+    :return: The outer cross validation scores as a list, the list of best parameters as found by the inner cross validation loop for each outer loop iteration, a dictionary containing the results of
+             each evaluation (averaged over the folds) of the inner cross validation loop indexed by the outer loop fold number
+    """
+    if outer_valid_percentage is None:
+        raise ValueError('Please provide an outer_valid_percentage to split the input training data in the outer cross validation loop')
+
+    if inner_valid_percentage is None:
+        raise ValueError('Please provide an inner_valid_percentage to split the input training data in the inner cross validation loop')
+
+    if inner_seed is None:
+        print('The random seed is not set for the inner cross validation loop.  This will lead to potentially non-reproducible results.')
+    else:
+        assert type(inner_seed) == int, "inner_seed must be an integer"
+
+    if outer_seed is not None:
+        assert type(outer_seed) == int, "outer_seed must be an integer"
+        outer_seed_np = np.random.RandomState(outer_seed)
+    else:
+        print('The random seed is not set for the outer cross validation loop.  This will lead to potentially non-reproducible results.')
+        outer_seed_np = np.random.RandomState(outer_seed)
+
+    try:
+        num_threads = fit_params_dict['num_threads']
+    except KeyError:
+        num_threads = 1
+
+    print('Evaluation model with {0} outer cross-validation folds and {1} inner cross-validation folds.'.format(outer_cv, inner_cv))
+    print('Remember, nested cross-validation does not select the hyperparameters for the model. It estimates performance of the entire modeling processes.')
+
+    if early_stop_evals is not None:
+        if batch_size is not None:
+            raise AttributeError('Cannot use both early stopping and batch fitting simultaneously. Please use one or the other.')
+
+    if hyper_opt_search:
+        if random_search:
+            raise AttributeError('Cannot run random search and hyperopt search simultaneously. Please select one of the other.')
+
+    outer_score_list = []
+    param_list = []
+    inner_fold_results = {}
+    # outer cv loop
+    for outer_fold in range(outer_cv):
+        train_, outer_valid_ = random_train_test_split(interactions=interactions, test_percentage=outer_valid_percentage)
+
+        # Now run the hyperparameter search here.  This should return the best found hyperparameters based on inner cv score.
+        if early_stop_evals is not None:
+            best, trials = fit_model_early_stopping(interactions=train_,
+                                                    hyperparams_dict=hyperparams_dict,
+                                                    fit_params_dict=fit_params_dict,
+                                                    test_percentage=inner_valid_percentage,
+                                                    item_features=item_features,
+                                                    user_features=user_features,
+                                                    cv=inner_cv,
+                                                    max_evals=max_evals,
+                                                    eval_metric=eval_metric,
+                                                    verbose=verbose,
+                                                    seed=inner_seed,
+                                                    k=k,
+                                                    random_search=random_search,
+                                                    hyper_opt_search=hyper_opt_search,
+                                                    early_stop_evals=early_stop_evals)
+        elif batch_size is not None:
+            best, trials = fit_model_batch(interactions=train_,
+                                           hyperparams_dict=hyperparams_dict,
+                                           fit_params_dict=fit_params_dict,
+                                           test_percentage=inner_valid_percentage,
+                                           item_features=item_features,
+                                           user_features=user_features,
+                                           cv=inner_cv,
+                                           max_evals=max_evals,
+                                           eval_metric=eval_metric,
+                                           verbose=verbose,
+                                           seed=inner_seed,
+                                           k=k,
+                                           random_search=random_search,
+                                           hyper_opt_search=hyper_opt_search,
+                                           batch_size=batch_size)
+        else:
+            best, trials = fit_model(interactions=train_,
+                                     hyperparams_dict=hyperparams_dict,
+                                     fit_params_dict=fit_params_dict,
+                                     test_percentage=inner_valid_percentage,
+                                     item_features=item_features,
+                                     user_features=user_features,
+                                     cv=inner_cv,
+                                     max_evals=max_evals,
+                                     eval_metric=eval_metric,
+                                     verbose=verbose,
+                                     seed=inner_seed,
+                                     k=k,
+                                     random_search=random_search,
+                                     hyper_opt_search=hyper_opt_search)
+
+        # Store the results of the trials object for this inner cv loop.
+        # This will store the results for each fold in the most recent inner fold to a dictionary indexed by the current outer fold number
+        inner_fold_results[outer_fold] = trials.trials
+
+        # Get out the best hyperparameters. Should I support saving the parameters here? Doesn't seem like much point.
+        inner_params = get_best_hyperparams(hyperparams_dict=hyperparams_dict,
+                                            fit_params_dict=fit_params_dict,
+                                            best=best)
+
+        # Add the random seed to the inner_params dictionary. We need this if the user wants to specify the seed in the outer cross validation fit as well.
+        inner_params['random_state'] = outer_seed_np
+
+        # param_list.append(inner_params)
+        num_epochs = inner_params.pop('num_epochs')
+
+        # Train model on train_ with the returned hyperparameters and test on outer_valid_
+        score = fit_eval(params=inner_params,
+                         eval_metric=eval_metric,
+                         train_interactions=train_,
+                         valid_interactions=outer_valid_,
+                         num_epochs=num_epochs,
+                         num_threads=num_threads,
+                         item_features=item_features,
+                         user_features=user_features,
+                         k=k,
+                         verbose=verbose)
+
+        # Add the number of epochs back to the parameter dictionary before storing it. We might want to look at this later
+        inner_params['num_epochs'] = num_epochs
+
+        # Add the seed used in the inner loop in case someone wants to set separate inner and out seeds just to see what happens
+        inner_params['inner_cv_seed'] = inner_seed
+
+        # Rename in the outer cv seed to something more interpretable in the output. Remove the numpy random state and just output the initially input integer
+        inner_params.pop('random_state')
+        inner_params['outer_cv_seed'] = outer_seed
+
+        param_list.append(inner_params)
+
+        outer_score_list.append(score)
+
+        print('Completed outer fold: {0}'.format(outer_fold + 1))
+        print('Outer fold: {0}  loss: {1}'.format(outer_fold + 1, score))
+
+    print('Nested cross-validation complete')
+
+    return outer_score_list, param_list, inner_fold_results
+
+
 def fit_model_early_stopping(interactions, hyperparams_dict, fit_params_dict, test_percentage=0.1, item_features=None, user_features=None, cv=None, random_search=False, hyper_opt_search=True, max_evals=10, early_stop_evals=10, seed=0, eval_metric='auc_score', k=10, verbose=True):
     """
     Higher level function to actually run all the aspects of the hyperparameter search. This one works with early stopping; it will end the parameter search when no performance improvement has been
-    detected after early_stop_evals threshold number of evaluations
+    detected after early_stop_evals threshold number of evaluations.
     :param interactions: The full training set (sparse matrix) of user/item interactions
     :param hyperparams_dict: The dictionary of model hyperparameters.  The keys should be the hyperparameter name and the values a list with the first element the HyperOpt variable type and the second
                              element should be a list of possible values to consider for the hyperparameter.  If only a key and number value are provided, it is assumed that the variable is a choice
@@ -70,6 +412,8 @@ def fit_model_early_stopping(interactions, hyperparams_dict, fit_params_dict, te
     :param max_evals: The maximum number of evaluations to use for parameter search
     :param early_stop_evals: The number of evaluations that need to go by with no improvement to trigger the early stopping condition
     :param seed: The random seed to use in model building.  Doesn't apply to the train/test split, but should start the model training at the same place
+    :param eval_metric: The evaluation metric to use
+    :param k: The k parameter for the precision at k and recall at k metrics.  Only relevant if you are using one of these metrics for valuation
     :param verbose: Controls the verbosity of the model fit.  Default is True. This means the model will print out the epoch it's on as it's training
     :return: The best found parameters and the history trials object
     """
@@ -175,6 +519,8 @@ def fit_model_early_stopping_dataiku(folder, interactions, hyperparams_dict, fit
     :param max_evals: The maximum number of evaluations to use for parameter search
     :param early_stop_evals: The number of evaluations that need to go by with no improvement to trigger the early stopping condition
     :param seed: The random seed to use in model building.  Doesn't apply to the train/test split, but should start the model training at the same place
+    :param eval_metric: The evaluation metric to use
+    :param k: The k parameter for the precision at k and recall at k metrics.  Only relevant if you are using one of these metrics for valuation
     :param verbose: Controls the verbosity of the model fit.  Default is True. This means the model will print out the epoch it's on as it's training
     :return: The best found parameters and the history trials object
     """
@@ -216,11 +562,17 @@ def fit_model_early_stopping_dataiku(folder, interactions, hyperparams_dict, fit
         best_loss_so_far = 0
         for i in range(early_stop_evals, max_evals + 1, early_stop_evals):
             best = fmin(f_objective, params, algo=tpe.rand.suggest, max_evals=i, trials=trials, rstate=np.random.RandomState(seed))
+
             # Output the batch findings so far
-            file_name_trials = output_checkpoint_files(hyperparams_dict, fit_params_dict, i, trials, best)
+            file_name_trials = output_checkpoint_files_dataiku(folder, hyperparams_dict, fit_params_dict, i, trials, best)
+
+            # Setup the dataiku handle object
+            handle = dataiku.Folder(folder)
+            path = handle.get_path()
+
             # Reload the trials object to restart the search where we left off
-            # TODO: Do I need to do this here, or can I just re-assign the variable?
-            trials = pickle.load(open(file_name_trials, "rb"))
+            # TODO: Do I need to to do here, or can I just re-assign the variable?
+            trials = pickle.load(open(path + "/" + file_name_trials, "rb", -1))
 
             current_loss = trials.best_trial['result']['loss']
 
@@ -242,10 +594,15 @@ def fit_model_early_stopping_dataiku(folder, interactions, hyperparams_dict, fit
             best = fmin(f_objective, params, algo=tpe.suggest, max_evals=i, trials=trials, rstate=np.random.RandomState(seed))
 
             # Output the batch findings so far
-            file_name_trials = output_checkpoint_files(hyperparams_dict, fit_params_dict, i, trials, best)
+            file_name_trials = output_checkpoint_files_dataiku(folder, hyperparams_dict, fit_params_dict, i, trials, best)
+
+            # Setup the dataiku handle object
+            handle = dataiku.Folder(folder)
+            path = handle.get_path()
+
             # Reload the trials object to restart the search where we left off
-            # TODO: Do I need to do this here, or can I just re-assign the variable?
-            trials = pickle.load(open(file_name_trials, "rb"))
+            # TODO: Do I need to to do here, or can I just re-assign the variable?
+            trials = pickle.load(open(path + "/" + file_name_trials, "rb", -1))
 
             current_loss = trials.best_trial['result']['loss']
 
@@ -284,6 +641,7 @@ def fit_model_batch(interactions, hyperparams_dict, fit_params_dict, batch_size,
     :param verbose: Controls the verbosity of the model fit.  Default is True. This means the model will print out the epoch it's on as it's training
     :return: The best found parameters and the history trials object
     """
+    # TODO: Throw a warning that the number of batches should divide the total number of evals, or else all evals will not get completed. e.g. batch_size=10 and max_evals=11 will only run 10 evals
     if random_search:
         if not hyper_opt_search:
             print('Running randomized hyperparameter search')
@@ -317,21 +675,18 @@ def fit_model_batch(interactions, hyperparams_dict, fit_params_dict, batch_size,
 
     if random_search:
         # Iterate over the maximum evaluations by batch size
+        # Careful here, this will cutoff the evaluations if max_evals / batch_size is not an integer...so max_evals = 11 will only run one batch. It still does 11 evals.
         print('Running for {0} evaluations in batches of {1} for a total of {2} batches'.format(max_evals, batch_size, max_evals // batch_size))
         for i in range(batch_size, max_evals + 1, batch_size):
 
             best = fmin(f_objective, params, algo=tpe.rand.suggest, max_evals=i, trials=trials, rstate=np.random.RandomState(seed))
 
             # Output the batch findings so far
-            file_name_trials = output_checkpoint_files_dataiku(folder, hyperparams_dict, fit_params_dict, i, trials, best)
-
-            # Setup the dataiku handle object
-            handle = dataiku.Folder(folder)
-            path = handle.get_path()
+            file_name_trials = output_checkpoint_files(hyperparams_dict, fit_params_dict, i, trials, best)
 
             # Reload the trials object to restart the search where we left off
             # TODO: Do I need to to do here, or can I just re-assign the variable?
-            trials = pickle.load(open(path + "/" + file_name_trials, "rb", -1))
+            trials = pickle.load(open(file_name_trials, "rb"))
 
             batch_number = int(max_evals * (i / max_evals) / batch_size)
             print('completed batch: {0}'.format(batch_number))
@@ -341,21 +696,17 @@ def fit_model_batch(interactions, hyperparams_dict, fit_params_dict, batch_size,
 
     if hyper_opt_search:
         # Iterate over the maximum evaluations by batch size
+        # Careful here, this will cutoff the evaluations if max_evals / batch_size is not an integer...so max_evals = 11 will only run one batch. It still does 11 evals.
         print('Running for {0} evaluations in batches of {1} for a total of {2} batches'.format(max_evals, batch_size, max_evals // batch_size))
         for i in range(batch_size, max_evals + 1, batch_size):
 
             best = fmin(f_objective, params, algo=tpe.suggest, max_evals=i, trials=trials, rstate=np.random.RandomState(seed))
 
             # Output the batch findings so far
-            file_name_trials = output_checkpoint_files_dataiku(folder, hyperparams_dict, fit_params_dict, i, trials, best)
-
-            # Setup the dataiku handle object
-            handle = dataiku.Folder(folder)
-            path = handle.get_path()
-
+            file_name_trials = output_checkpoint_files(hyperparams_dict, fit_params_dict, i, trials, best)
             # Reload the trials object to restart the search where we left off
             # TODO: Do I need to to do here, or can I just re-assign the variable?
-            trials = pickle.load(open(path + "/" + file_name_trials, "rb", -1))
+            trials = pickle.load(open(file_name_trials, "rb"))
 
             batch_number = int(max_evals * (i / max_evals) / batch_size)
             print('completed batch: {0}'.format(batch_number))
@@ -390,7 +741,7 @@ def fit_model_batch_dataiku(folder, interactions, hyperparams_dict, fit_params_d
     :param verbose: Controls the verbosity of the model fit.  Default is True. This means the model will print out the epoch it's on as it's training
     :return: The best found parameters and the history trials object
     """
-
+    # TODO: Throw a warning that the number of batches should divide the total number of evals, or else all evals will not get completed. e.g. batch_size=10 and max_evals=11 will only run 10 evals
     if random_search:
         if not hyper_opt_search:
             print('Running randomized hyperparameter search')
@@ -424,6 +775,7 @@ def fit_model_batch_dataiku(folder, interactions, hyperparams_dict, fit_params_d
 
     if random_search:
         # Iterate over the maximum evaluations by batch size
+        # Careful here, this will cutoff the evaluations if max_evals / batch_size is not an integer...so max_evals = 11 will only run one batch. It still does 11 evals.
         print('Running for {0} evaluations in batches of {1} for a total of {2} batches'.format(max_evals, batch_size, max_evals // batch_size))
         for i in range(batch_size, max_evals + 1, batch_size):
 
@@ -448,6 +800,7 @@ def fit_model_batch_dataiku(folder, interactions, hyperparams_dict, fit_params_d
 
     if hyper_opt_search:
         # Iterate over the maximum evaluations by batch size
+        # Careful here, this will cutoff the evaluations if max_evals / batch_size is not an integer...so max_evals = 11 will only run one batch. It still does 11 evals.
         print('Running for {0} evaluations in batches of {1} for a total of {2} batches'.format(max_evals, batch_size, max_evals // batch_size))
         for i in range(batch_size, max_evals + 1, batch_size):
 
@@ -484,7 +837,7 @@ def fit_model(interactions, hyperparams_dict, fit_params_dict, test_percentage=0
     :param test_percentage: The percentage of the training set you want to use for validation
     :param item_features: The sparse matrix of features for the items
     :param user_features: The sparse matrix of features for the users
-    :param cv: The number of cross validation folds to use.  Should be an interger number of folds or None if you don't want to run with cross validation
+    :param cv: The number of cross validation folds to use.  Should be an integer number of folds or None if you don't want to run with cross validation
     :param random_search: True if you want to use randomized search over the parameters
     :param hyper_opt_search: True if you want to use tree parzen estimators algorithm for parameter search
     :param max_evals: The maximum number of evaluations to use for parameter search
