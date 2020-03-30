@@ -563,6 +563,7 @@ def fit_model_early_stopping_dataiku(folder, interactions, hyperparams_dict, fit
         print('Running for {0} evaluations with early stopping checks every {1} evaluations'.format(max_evals, early_stop_evals))
         best_loss_so_far = 0
         for i in range(early_stop_evals, max_evals + 1, early_stop_evals):
+
             best = fmin(f_objective, params, algo=tpe.rand.suggest, max_evals=i, trials=trials, rstate=np.random.RandomState(seed))
 
             # Output the batch findings so far
