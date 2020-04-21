@@ -12,7 +12,7 @@
 
 A custom wrapper around LightFM for optimization with random search and hyperopt.
 
-Version 0.2.0
+Version 1.2.1
 
 """
 # TODO: Test the nested cross validation function.  What's currently being done is hyperparameter estimation and then cross validation on the tune model.
@@ -575,7 +575,9 @@ def fit_model_early_stopping_dataiku(folder, interactions, hyperparams_dict, fit
 
             # Reload the trials object to restart the search where we left off
             # TODO: Do I need to to do here, or can I just re-assign the variable?
-            trials = pickle.load(open(path + "/" + file_name_trials, "rb", -1))
+            input_ = open(os.path.join(path, file_name_trials), "rb")
+            trials = pickle.load(input_)
+            input_.close()
 
             current_loss = trials.best_trial['result']['loss']
 
@@ -605,7 +607,9 @@ def fit_model_early_stopping_dataiku(folder, interactions, hyperparams_dict, fit
 
             # Reload the trials object to restart the search where we left off
             # TODO: Do I need to to do here, or can I just re-assign the variable?
-            trials = pickle.load(open(path + "/" + file_name_trials, "rb", -1))
+            input_ = open(os.path.join(path, file_name_trials), "rb")
+            trials = pickle.load(input_)
+            input_.close()
 
             current_loss = trials.best_trial['result']['loss']
 
@@ -793,7 +797,9 @@ def fit_model_batch_dataiku(folder, interactions, hyperparams_dict, fit_params_d
 
             # Reload the trials object to restart the search where we left off
             # TODO: Do I need to to do here, or can I just re-assign the variable?
-            trials = pickle.load(open(path + "/" + file_name_trials, "rb", -1))
+            input_ = open(os.path.join(path, file_name_trials), "rb")
+            trials = pickle.load(input_)
+            input_.close()
 
             batch_number = int(max_evals * (i / max_evals) / batch_size)
             print('completed batch: {0}'.format(batch_number))
@@ -818,7 +824,9 @@ def fit_model_batch_dataiku(folder, interactions, hyperparams_dict, fit_params_d
 
             # Reload the trials object to restart the search where we left off
             # TODO: Do I need to to do here, or can I just re-assign the variable?
-            trials = pickle.load(open(path + "/" + file_name_trials, "rb", -1))
+            input_ = open(os.path.join(path, file_name_trials), "rb")
+            trials = pickle.load(input_)
+            input_.close()
 
             batch_number = int(max_evals * (i / max_evals) / batch_size)
             print('completed batch: {0}'.format(batch_number))
@@ -1010,7 +1018,7 @@ def get_best_hyperparams(hyperparams_dict, fit_params_dict, best, file_name=None
     best_params['num_epochs'] = fit_params_dict['num_epochs'][1][best['num_epochs']]
 
     if file_name is not None:
-        json_out =json.dumps(best_params)
+        json_out = json.dumps(best_params)
         f = open(file_name, "w")
         f.write(json_out)
         f.close()
@@ -1045,8 +1053,15 @@ def get_best_hyperparams_dataiku(folder, hyperparams_dict, fit_params_dict, best
     if file_name is not None:
         json_out = json.dumps(best_params)
         handle = dataiku.Folder(folder)
-        with handle.get_writer(file_name) as w:
-            w.write(json_out.encode())
+        path = handle.get_path()
+
+        # This won't work as is.  To reload an explicit json, I need to save as a json, otherwise this risks getting reloaded as a string
+        # output = open(os.path.join(path, file_name), "wb")
+        # pickle.dump(json_out, output, protocol=pickle.HIGHEST_PROTOCOL)
+        # output.close()
+        f = open(os.path.join(path, file_name), "w")
+        f.write(json_out)
+        f.close()
 
     return best_params
 
@@ -1070,10 +1085,12 @@ def load_best_params_dataiku(folder, file_name):
     :param file_name: Directory and name of the json file to load
     :return: Dictionary with parameters contained in the input json file
     """
+    # TODO: Test this in dataiku environment.
     handle = dataiku.Folder(folder)
     path = handle.get_path()
-    with open(path + '/' + file_name, 'r') as f:
+    with open(os.path.join(path, file_name), 'r') as f:
         best_params = json.load(f)
+    f.close()
 
     return best_params
 
@@ -1330,12 +1347,15 @@ def save_model_dataiku(folder, model, filename):
     #      print('Model saved')
     #  else:
     #      print('Something went wrong. Model not saved.')
-
+    # TODO: Test if this works. This will make model reloading a lot easier.
     if filename is not None:
         handle = dataiku.Folder(folder)
-        with handle.get_writer(filename) as w:
-            # TODO: Again, is there a reason to prefer pickle over numpy sparse matrix saving? I worry about reloading this object.
-            pickle.dump(model_params, w, protocol=pickle.HIGHEST_PROTOCOL)
+        path = handle.get_path()
+
+        output = open(os.path.join(path, filename), "wb")
+        # pickle.dump(model_params, output, protocol=pickle.HIGHEST_PROTOCOL)
+        np.savez_compressed(output, **model_params)
+        output.close()
 
 
 def load_model(filename):
@@ -1368,7 +1388,10 @@ def load_model_dataiku(folder, filename):
     path = handle.get_path()
 
     # TODO: Will this work when saving as a pickle and not using the numpy savez_compressed?
-    numpy_model = np.load(path + "/" + filename, allow_pickle=True)
+    # TODO: Test that this works in a dataiku environment. The numpy load function is convenient here, but will it work as expected?
+    input_model = open(os.path.join(path, filename), "rb")
+    numpy_model = np.load(input_model, allow_pickle=True)
+    input_model.close()
     for value in [x for x in numpy_model if x in possible_model_weights]:
         setattr(model, value, numpy_model[value])
 
@@ -1395,7 +1418,7 @@ def output_checkpoint_files(hyperparams_dict, fit_params_dict, batch_number, tri
     file_name_best_params_formatted = "dump_best_params_at_eval_{0}_{1}.p".format(batch_number, current_time)
 
     # Output the trials object.  You need this to restart the search at the end of this batch if you want to.
-    pickle.dump(trials, open(file_name_trials, "wb"))
+    pickle.dump(trials, open(file_name_trials, "wb"), protocol=pickle.HIGHEST_PROTOCOL)
 
     # Reload the trials object to restart the search.
     # TODO: Do I need to to do here, or can I just re-assign the variable?
@@ -1403,7 +1426,7 @@ def output_checkpoint_files(hyperparams_dict, fit_params_dict, batch_number, tri
 
     # Dump the best seen parameters so far.
     # TODO: format this appropriately
-    pickle.dump(best, open(file_name_best_raw, "wb"))
+    pickle.dump(best, open(file_name_best_raw, "wb"), protocol=pickle.HIGHEST_PROTOCOL)
 
     # Get the formatted hyperparameters and fit parameters found so far
     get_best_hyperparams(hyperparams_dict, fit_params_dict, best, file_name=file_name_best_params_formatted)
@@ -1431,10 +1454,12 @@ def output_checkpoint_files_dataiku(folder, hyperparams_dict, fit_params_dict, b
 
     # Setup the needed dataiku handle
     handle = dataiku.Folder(folder)
+    path = handle.get_path()
 
     # Output the trials object.  You need this to restart the search at the end of this batch if you want to.
-    with handle.get_writer(file_name_trials) as w:
-        pickle.dump(trials, open(w, "wb"), protocol=pickle.HIGHEST_PROTOCOL)
+    output_trials = open(os.path.join(path, file_name_trials), "wb")
+    pickle.dump(trials, output_trials, protocol=pickle.HIGHEST_PROTOCOL)
+    output_trials.close()
 
     # Reload the trials object to restart the search.
     # TODO: Do I need to to do here, or can I just re-assign the variable?
@@ -1442,8 +1467,9 @@ def output_checkpoint_files_dataiku(folder, hyperparams_dict, fit_params_dict, b
 
     # Dump the best seen parameters so far.
     # TODO: format this appropriately
-    with handle.get_writer(file_name_trials) as w:
-        pickle.dump(best, open(w, "wb"), protocol=pickle.HIGHEST_PROTOCOL)
+    output_best_raw = open(os.path.join(path, file_name_best_raw), "wb")
+    pickle.dump(best, output_best_raw, protocol=pickle.HIGHEST_PROTOCOL)
+    output_best_raw.close()
 
     # Get the formatted hyperparameters and fit parameters found so far
     get_best_hyperparams_dataiku(folder, hyperparams_dict, fit_params_dict, best, file_name=file_name_best_params_formatted)

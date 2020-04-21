@@ -9,7 +9,7 @@ ______                                                  _             _   _ _   
 
 A collection of helper functions intended for use with the LightFM hybrid recommender model.
 
-Version 0.1
+Version 1.1.2
 """
 
 # import modules
@@ -622,14 +622,20 @@ def save_data_objects_dataiku(folder, filename, dataset=None, matrix=None):
     # TODO: Add support for multiple saves at once.
     if dataset is not None:
         handle = dataiku.Folder(folder)
-        with handle.get_writer(filename) as w:
-            pickle.dump(dataset, w, protocol=pickle.HIGHEST_PROTOCOL)
+        path = handle.get_path()
+
+        output_data = open(os.path.join(path, filename), "wb")
+        pickle.dump(dataset, output_data, protocol=pickle.HIGHEST_PROTOCOL)
+        output_data.close()
     if matrix is not None:
-        #sparse.save_npz(filename, matrix)
+        # TODO: Verify that this works with save_npz. It's a convenient function here.
         handle = dataiku.Folder(folder)
-        with handle.get_writer(filename) as w:
-            # Why is the sparse matrix save commented out? I see that the load function has been changed to take inputs from a pickle. Is there a reason for this?
-            pickle.dump(matrix, w, protocol=pickle.HIGHEST_PROTOCOL)
+        path = handle.get_path()
+
+        output_matrix = open(os.path.join(path, filename), "wb")
+        # pickle.dump(matrix, output_matrix, protocol=pickle.HIGHEST_PROTOCOL)
+        sparse.save_npz(output_matrix, matrix)
+        output_matrix.close()
 
 
 def load_data_objects(filename, is_dataset=False, is_matrix=False):
@@ -642,6 +648,7 @@ def load_data_objects(filename, is_dataset=False, is_matrix=False):
     """
     # TODO: Add support for multiple loads at once
     if is_dataset:
+        # Do I really need to explicitly set the buffer to the default -1? Seems redundant.
         dataset = pickle.load(open(filename, 'rb', -1))
 
         return dataset
@@ -663,19 +670,23 @@ def load_data_objects_dataiku(folder, filename, is_dataset=False, is_matrix=Fals
     """
     # TODO: Add support for multiple loads at once
     if is_dataset:
-        #dataset = pickle.load(open(filename, 'rb', -1))
         handle = dataiku.Folder(folder)
-        path=handle.get_path()
-        dataset = pickle.load(open(path+"/"+filename, 'rb', -1))
+        path = handle.get_path()
+        input_data = open(os.path.join(path, filename), "rb", -1)
+        dataset = pickle.load(input_data)
+        input_data.close()
 
         return dataset
 
     if is_matrix:
-        # Again, why is this commented out in favour of pickle?
-        #matrix = sparse.load_npz(filename)
+        # TODO: Test this
         handle = dataiku.Folder(folder)
-        path=handle.get_path()
-        matrix = pickle.load(open(path+"/"+filename, 'rb', -1))
+        path = handle.get_path()
+        input_matrix = open(os.path.join(path, filename), "rb", -1)
+        # Is this going to work? It should.
+        matrix = sparse.load_npz(input_matrix)
+        # matrix = pickle.load(open(path+"/"+filename, 'rb', -1))
+        input_matrix.close()
 
         return matrix
 
