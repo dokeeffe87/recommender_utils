@@ -9,7 +9,7 @@ ______                                                  _             _   _ _   
 
 A collection of helper functions intended for use with the LightFM hybrid recommender model.
 
-Version 1.1.2
+Version 1.1.3
 """
 
 # import modules
@@ -29,6 +29,8 @@ from lightfm.evaluation import auc_score, precision_at_k, recall_at_k, reciproca
 from lightfm.data import Dataset
 
 from scipy import sparse, stats
+
+from sklearn.feature_extraction.text import CountVectorizer
 
 
 def get_similar_tags(model, tag_id):
@@ -889,4 +891,138 @@ def make_cold_start_recommendation_on_new_item(model, dataset, new_item_features
 
     return user_preds_df
 
+
+def reduce_text(text, allowed_text_df, allowed_text_column):
+    """
+    A function to reduce an input document to include only words contained in the allowed_text_df (with values in the allowed_text_columns)
+    :param text: A string of words in the text, separated by commas.  This should be handled automatically by the input from the make_text_encoded_features function
+    :param allowed_text_df: The optional DataFrame containing the curated vocabulary of terms
+    :param allowed_text_column: The column in keyword_df which contains the words
+    :return: A list with the reduced text
+    """
+    text_list_ = text.split(',')
+    text_reduced_list_ = [x for x in text_list_ if x in allowed_text_df[allowed_text_column].values]
+
+    return text_reduced_list_
+
+
+def make_vectorized_columns(df, list_of_text_columns, prefixes=None):
+    """
+    A function to vectorize the documents in each column in the list list_of_text_columns
+    :param df: The DataFrame containing the text to vectorize
+    :param list_of_text_columns: A list of column names in df which has the texts to vectorize
+    :param prefixes: An optional list of prefixes to attach to each of the vectorized features for each column.  For example, if you had two columns to consider you might add prefixes=['col1', 'col2']
+                     to indicate which columns each vectorized feature originally came from
+    :return: A DataFrame with the vectorized text features
+    """
+    print('Making vectorized columns out of text columns {0}'.format(list_of_text_columns))
+    df_list = []
+    for i, col in enumerate(list_of_text_columns):
+        corpus_ = df[col].values
+        vectorizer = CountVectorizer()
+        text_x = vectorizer.fit_transform(corpus_)
+
+        if prefixes is not None:
+            prefix_ = prefixes[i]
+            col_names_ = [prefix_ + x for x in vectorizer.get_feature_names()]
+        else:
+            col_names_ = [x for x in vectorizer.get_feature_names()]
+
+        df_ = pd.DataFrame(text_x.A, columns=col_names_)
+
+        df_list.append(df_)
+
+    if len(df_list) > 1:
+        return pd.concat(df_list, axis=1)
+    else:
+        return df_list[0]
+
+
+def make_text_encoded_features(df, list_of_text_columns, join_keys, keyword_df=None, keyword_text_column=None, prefixes=None, fill_missing=True, deduplicate=True, missing_fill=None, drop=True):
+    """
+    Runs the process of extracting vectorized word features from a set of documents contained in a DataFrame.  This will reduce the set of possible terms down to those found in a curated list of
+    terms, if desired.  It will also fill missing text values, deduplicate the tokens of each individual document if desired, and join back to the original DataFrame
+    :param df: The DataFrame containing the text columns to consider
+    :param list_of_text_columns: A list of column names containing the texts to consider in df
+    :param join_keys: A list of join keys for merging the vectorized features back to the original DataFrame. If you don't pass a list, the input will be converted to list automatically
+    :param keyword_df: The optional DataFrame containing the curated vocabulary of terms
+    :param keyword_text_column: The column in keyword_df which contains the words
+    :param prefixes: An optional list of prefixes to attach to each of the vectorized features for each column.  For example, if you had two columns to consider you might add prefixes=['col1', 'col2']
+                     to indicate which columns each vectorized feature originally came from
+    :param fill_missing: Boolean. If True, will fill missing text rows in each column with a specified token
+    :param deduplicate: Boolean. If True, will run deduplication on each document, so that repeat words are not present when performing count vectorization
+    :param missing_fill: Optional string to use when filling missing text rows.  If None and fill_missing is True, will default to MISSING
+    :param drop: Boolean. If True will identify non-numeric columns other than those in join_keys and will drop them from returned DataFrame
+    :return: A copy of the input DataFrame with the new vectorized columns included.  The returned copy will drop non-numeric columns other than those in join_keys if required.
+    """
+    # Check that is the keyword DataFrame is specified, a keyword_text_column is also specified
+    if keyword_df is not None:
+        if keyword_text_column is None:
+            raise KeyError('Specifying a keyword_df requires a valid column argument: keyword_text_column')
+        else:
+            if keyword_text_column not in keyword_df.columns:
+                raise KeyError('Specifying a keyword_df requires a valid column argument: keyword_text_column')
+
+    if not isinstance(join_keys, list):
+        join_keys = list(join_keys)
+
+    # make a copy of the input DataFrame so that we don't modify the original in place
+    df_copy = df.copy()
+    df_ = df_copy[join_keys + list_of_text_columns]
+
+    if fill_missing:
+        # Fill in missing values in the text columns
+        if missing_fill is None:
+            missing_fill = 'MISSING'
+
+        print('Filling missing values within each document in text columns {0} with tokens: {1}'.format(list_of_text_columns, missing_fill))
+        for col in list_of_text_columns:
+            df_[col].fillna(missing_fill, inplace=True)
+
+    if deduplicate:
+        # Dedup each of the documents in the corpus to remove repeated words per document.
+        print('Deduplicating documents for repeat words within each document in text columns {0}'.format(list_of_text_columns))
+        deduped_col_names = []
+        for col in list_of_text_columns:
+            # Note that by explicitly using a set here we loose the ordering of the words.  This is not a problem if we are just making hot encoded features or topic
+            # modeling with say LDA (which treat the corpus as a bag of words and as such does not consider word order). Be careful with this if you have larger documents
+            # and you want to try out a technique which does depend on word order
+            new_col_name = col + '_deduped'
+            deduped_col_names.append(new_col_name)
+            df_[new_col_name] = df_[col].str.split(' ').progress_apply(lambda x: ','.join(list(set(x))))
+
+    if keyword_df is not None:
+        # Now apply the keyword filtering if available
+        filtered_col_names = []
+        print('Filtering text columns {0} for keywords specified in column {1} of the input keyword DataFrame'.format(list_of_text_columns, keyword_text_column))
+        for col in list_of_text_columns:
+            new_col_name = col + '_filtered'
+            filtered_col_names.append(new_col_name)
+            df_[new_col_name] = df_[col + '_deduped'].progress_apply(lambda x: reduce_text(text=x,
+                                                                                           allowed_text_df=keyword_df,
+                                                                                           allowed_text_column=keyword_text_column))
+            df_[new_col_name] = df_[new_col_name].progress_apply(lambda x: " ".join(x))
+
+    try:
+        df_vect = make_vectorized_columns(df_, filtered_col_names, prefixes=prefixes)
+    except UnboundLocalError:
+        try:
+            df_vect = make_vectorized_columns(df_, deduped_col_names, prefixes=prefixes)
+        except UnboundLocalError:
+            df_vect = make_vectorized_columns(df_, list_of_text_columns, prefixes=prefixes)
+
+    df_text_features = pd.concat([df_, df_vect], axis=1)
+
+    # join back to the original DataFrame copy
+    df_all_features = df_copy.merge(df_text_features, how='left', on=join_keys)
+
+    # Identify the columns to drop if we want to
+    if drop:
+        object_cols = df_all_features.select_dtypes(include=['object']).columns
+        drop_cols = [x for x in object_cols if x not in join_keys]
+        df_all_features = df_all_features.drop(drop_cols, axis=1)
+
+    print('Vectorization complete')
+
+    return df_all_features
 
