@@ -9,7 +9,7 @@ ______                                                  _             _   _ _   
 
 A collection of helper functions intended for use with the LightFM hybrid recommender model.
 
-Version 0.1
+Version 1.1.3
 """
 
 # import modules
