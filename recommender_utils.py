@@ -853,6 +853,7 @@ def make_vectorized_columns(df, list_of_text_columns, prefixes=None):
                      to indicate which columns each vectorized feature originally came from
     :return: A DataFrame with the vectorized text features
     """
+    print('Making vectorized columns out of text columns {0}'.format(list_of_text_columns))
     df_list = []
     for i, col in enumerate(list_of_text_columns):
         corpus_ = df[col].values
@@ -919,11 +920,13 @@ def make_text_encoded_features(df, list_of_text_columns, join_keys, keyword_df=N
     if deduplicate:
         # Dedup each of the documents in the corpus to remove repeated words per document.
         print('Deduplicating documents for repeat words within each document in text columns {0}'.format(list_of_text_columns))
+        deduped_col_names = []
         for col in list_of_text_columns:
             # Note that by explicitly using a set here we loose the ordering of the words.  This is not a problem if we are just making hot encoded features or topic
             # modeling with say LDA (which treat the corpus as a bag of words and as such does not consider word order). Be careful with this if you have larger documents
             # and you want to try out a technique which does depend on word order
             new_col_name = col + '_deduped'
+            deduped_col_names.append(new_col_name)
             df_[new_col_name] = df_[col].str.split(' ').progress_apply(lambda x: ','.join(list(set(x))))
 
     if keyword_df is not None:
@@ -938,8 +941,14 @@ def make_text_encoded_features(df, list_of_text_columns, join_keys, keyword_df=N
                                                                                            allowed_text_column=keyword_text_column))
             df_[new_col_name] = df_[new_col_name].progress_apply(lambda x: " ".join(x))
 
-    print('Making vectorized columns out of text columns {0}'.format(list_of_text_columns))
-    df_vect = make_vectorized_columns(df_, filtered_col_names, prefixes=prefixes)
+    try:
+        df_vect = make_vectorized_columns(df_, filtered_col_names, prefixes=prefixes)
+    except UnboundLocalError:
+        try:
+            df_vect = make_vectorized_columns(df_, deduped_col_names, prefixes=prefixes)
+        except UnboundLocalError:
+            df_vect = make_vectorized_columns(df_, list_of_text_columns, prefixes=prefixes)
+
     df_text_features = pd.concat([df_, df_vect], axis=1)
 
     # join back to the original DataFrame copy
@@ -954,5 +963,6 @@ def make_text_encoded_features(df, list_of_text_columns, join_keys, keyword_df=N
     print('Vectorization complete')
 
     return df_all_features
+
 
 
