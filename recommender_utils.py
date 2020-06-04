@@ -1026,3 +1026,38 @@ def make_text_encoded_features(df, list_of_text_columns, join_keys, keyword_df=N
 
     return df_all_features
 
+
+def fix_id_col(df, id_col):
+    """
+    Reformat identifier type columns to just the original string.  Won't work with int types as they might lose trailing zeros.
+    :param df: DataFrame with identifier column
+    :param id_col: Name of identifier column
+    :return: None. Modifies the supplied DataFrame inplace
+    """
+    df[id_col] = df[id_col].apply(lambda x: x[11:-1])
+
+    return None
+
+
+def simplify_feature_names(df, cols_to_exclude, list_of_names=None):
+    """
+    Masks the returned SparkBeyond columns to simple feature names.
+    :param df: DataFrame containing features returned by SparkBeyond enrich
+    :param cols_to_exclude: List of columns in df not to consider as features (i.e. like ID numbers and such)
+    :param list_of_names: Optional. List of custom names to use for features. There must be the same number of elements in this list as there are features in the input DataFrame. The names must also
+                          be in the same order as features in the DataFrame they are intending to rename
+    :return: Dictionary with keys as the original column names and values as the simplified names
+    """
+    map_dict = {}
+    cols_ = [x for x in df.columns if x not in cols_to_exclude]
+    if list_of_names is None:
+        for i in range(len(cols_)):
+            map_dict[cols_[i]] = 'feature_{0}'.format(i)
+    else:
+        if len(cols_) != len(list_of_names):
+            raise ValueError('Custom list of feature names and enriched data must have same length. There are {0} features in the custom list, but {1} enriched features'.format(len(list_of_names), len(cols_)))
+        for i in range(len(cols_)):
+            map_dict[cols_[i]] = list_of_names[i]
+
+    return map_dict
+
