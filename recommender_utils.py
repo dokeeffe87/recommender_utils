@@ -979,10 +979,10 @@ def make_text_encoded_features(df, list_of_text_columns, join_keys, keyword_df=N
         for col in list_of_text_columns:
             df_[col].fillna(missing_fill, inplace=True)
 
+    deduped_col_names = []
     if deduplicate:
         # Dedup each of the documents in the corpus to remove repeated words per document.
         print('Deduplicating documents for repeat words within each document in text columns {0}'.format(list_of_text_columns))
-        deduped_col_names = []
         for col in list_of_text_columns:
             # Note that by explicitly using a set here we loose the ordering of the words.  This is not a problem if we are just making hot encoded features or topic
             # modeling with say LDA (which treat the corpus as a bag of words and as such does not consider word order). Be careful with this if you have larger documents
@@ -991,9 +991,9 @@ def make_text_encoded_features(df, list_of_text_columns, join_keys, keyword_df=N
             deduped_col_names.append(new_col_name)
             df_[new_col_name] = df_[col].str.split(' ').progress_apply(lambda x: ','.join(list(set(x))))
 
+    filtered_col_names = []
     if keyword_df is not None:
         # Now apply the keyword filtering if available
-        filtered_col_names = []
         print('Filtering text columns {0} for keywords specified in column {1} of the input keyword DataFrame'.format(list_of_text_columns, keyword_text_column))
         for col in list_of_text_columns:
             new_col_name = col + '_filtered'
